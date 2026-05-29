@@ -1,0 +1,736 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);background:var(--color-background-tertiary);min-height:100vh}
+.shell{display:flex;height:100vh;min-height:700px;background:var(--color-background-tertiary)}
+.sidebar{width:220px;flex-shrink:0;background:var(--color-background-primary);border-right:0.5px solid var(--color-border-tertiary);display:flex;flex-direction:column;padding:0}
+.sidebar-logo{padding:18px 16px 14px;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;gap:10px}
+.logo-mark{width:28px;height:28px;background:#4F46E5;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.logo-mark i{color:#fff;font-size:15px}
+.logo-text{font-size:14px;font-weight:500;color:var(--color-text-primary)}
+.logo-sub{font-size:11px;color:var(--color-text-tertiary);margin-top:1px}
+.ws-selector{margin:10px 12px;padding:8px 10px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--color-background-secondary)}
+.ws-selector span{font-size:12px;color:var(--color-text-secondary);flex:1}
+.ws-selector i{font-size:14px;color:var(--color-text-tertiary)}
+.nav-section{padding:8px 12px 4px;font-size:10px;font-weight:500;color:var(--color-text-tertiary);letter-spacing:.06em;text-transform:uppercase}
+.nav-item{display:flex;align-items:center;gap:9px;padding:7px 14px;margin:1px 8px;border-radius:var(--border-radius-md);cursor:pointer;font-size:13px;color:var(--color-text-secondary);transition:background .12s}
+.nav-item:hover{background:var(--color-background-secondary)}
+.nav-item.active{background:#EEF2FF;color:#4338CA;font-weight:500}
+.nav-item i{font-size:16px;flex-shrink:0}
+.nav-item .badge{margin-left:auto;background:#EEF2FF;color:#4338CA;font-size:10px;padding:1px 6px;border-radius:10px;font-weight:500}
+.sidebar-footer{margin-top:auto;border-top:0.5px solid var(--color-border-tertiary);padding:12px}
+.avatar-row{display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer}
+.avatar{width:28px;height:28px;border-radius:50%;background:#EEF2FF;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#4338CA;flex-shrink:0}
+.avatar-info{flex:1}
+.avatar-name{font-size:12px;font-weight:500;color:var(--color-text-primary)}
+.avatar-role{font-size:11px;color:var(--color-text-tertiary)}
+
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{height:52px;background:var(--color-background-primary);border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0}
+.breadcrumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--color-text-secondary)}
+.breadcrumb .cur{color:var(--color-text-primary);font-weight:500}
+.topbar-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--border-radius-md);font-size:12px;cursor:pointer;border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);font-family:var(--font-sans);transition:background .12s}
+.btn:hover{background:var(--color-background-secondary)}
+.btn.primary{background:#4F46E5;color:#fff;border-color:#4F46E5}
+.btn.primary:hover{background:#4338CA}
+.btn i{font-size:14px}
+.content{flex:1;overflow-y:auto;padding:20px}
+
+.screen{display:none}
+.screen.active{display:block}
+
+.page-header{margin-bottom:20px}
+.page-title{font-size:20px;font-weight:500;color:var(--color-text-primary);margin-bottom:4px}
+.page-sub{font-size:13px;color:var(--color-text-secondary)}
+
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.stat-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:14px 16px}
+.stat-label{font-size:11px;color:var(--color-text-tertiary);margin-bottom:6px;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+.stat-val{font-size:22px;font-weight:500;color:var(--color-text-primary)}
+.stat-meta{font-size:11px;color:var(--color-text-secondary);margin-top:4px}
+.stat-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px}
+.dot-green{background:#22C55E}.dot-amber{background:#F59E0B}.dot-red{background:#EF4444}.dot-blue{background:#4F46E5}
+
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:16px}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.card-title{font-size:13px;font-weight:500;color:var(--color-text-primary)}
+.card-actions{display:flex;gap:8px;align-items:center}
+
+.agent-table{width:100%;border-collapse:collapse}
+.agent-table th{text-align:left;font-size:11px;font-weight:500;color:var(--color-text-tertiary);padding:8px 12px;border-bottom:0.5px solid var(--color-border-tertiary);text-transform:uppercase;letter-spacing:.04em}
+.agent-table td{padding:10px 12px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px;color:var(--color-text-primary);vertical-align:middle}
+.agent-table tr:last-child td{border-bottom:none}
+.agent-table tr:hover td{background:var(--color-background-secondary);cursor:pointer}
+.agent-name{font-weight:500;color:var(--color-text-primary);display:flex;align-items:center;gap:8px}
+.agent-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.ai-purple{background:#EEF2FF;color:#4338CA}
+.ai-teal{background:#CCFBF1;color:#0F766E}
+.ai-amber{background:#FEF3C7;color:#B45309}
+.ai-blue{background:#DBEAFE;color:#1D4ED8}
+
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500}
+.badge-green{background:#DCFCE7;color:#15803D}
+.badge-amber{background:#FEF9C3;color:#854D0E}
+.badge-red{background:#FEE2E2;color:#991B1B}
+.badge-blue{background:#DBEAFE;color:#1E40AF}
+.badge-purple{background:#EDE9FE;color:#5B21B6}
+.badge-gray{background:var(--color-background-secondary);color:var(--color-text-secondary)}
+
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px}
+.full-width{margin-bottom:16px}
+
+.tab-bar{display:flex;gap:0;border-bottom:0.5px solid var(--color-border-tertiary);margin-bottom:16px}
+.tab{padding:8px 16px;font-size:12px;color:var(--color-text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-0.5px}
+.tab.active{color:#4F46E5;border-bottom-color:#4F46E5;font-weight:500}
+.tab:hover:not(.active){color:var(--color-text-primary)}
+
+.kv-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px}
+.kv-row:last-child{border-bottom:none}
+.kv-key{color:var(--color-text-secondary)}
+.kv-val{color:var(--color-text-primary);font-weight:500;font-family:var(--font-mono);font-size:11px}
+
+.mini-bar{height:6px;border-radius:3px;background:var(--color-background-secondary);overflow:hidden;margin-top:6px}
+.mini-bar-fill{height:100%;border-radius:3px;background:#4F46E5}
+
+.trace-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--color-border-tertiary)}
+.trace-row:last-child{border-bottom:none}
+.trace-line{display:flex;flex-direction:column;align-items:center;gap:0}
+.trace-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:3px}
+.trace-vert{width:1px;flex:1;background:var(--color-border-tertiary);min-height:20px;margin-top:4px}
+.trace-content{flex:1}
+.trace-label{font-size:12px;font-weight:500;color:var(--color-text-primary)}
+.trace-meta{font-size:11px;color:var(--color-text-secondary);margin-top:2px}
+.trace-body{font-size:11px;font-family:var(--font-mono);color:var(--color-text-secondary);background:var(--color-background-secondary);padding:6px 8px;border-radius:6px;margin-top:6px;line-height:1.5}
+.trace-time{font-size:11px;color:var(--color-text-tertiary);white-space:nowrap;margin-left:auto}
+
+.eval-step{display:flex;align-items:center;gap:8px;padding:10px 14px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);margin-bottom:8px;font-size:12px;cursor:pointer;transition:border-color .12s}
+.eval-step:hover{border-color:var(--color-border-secondary)}
+.eval-step.done{border-color:#22C55E;background:#F0FDF4}
+.eval-step.active-step{border-color:#4F46E5;background:#EEF2FF}
+.step-num{width:22px;height:22px;border-radius:50%;background:var(--color-background-secondary);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0}
+.step-num.done{background:#22C55E;color:#fff}
+.step-num.active-step{background:#4F46E5;color:#fff}
+
+.score-ring{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px}
+.ring-val{font-size:26px;font-weight:500;color:var(--color-text-primary)}
+.ring-label{font-size:11px;color:var(--color-text-secondary);text-align:center}
+.ring-bar{width:60px;height:6px;border-radius:3px;background:var(--color-background-secondary);overflow:hidden}
+.ring-fill{height:100%;border-radius:3px}
+
+.log-row{display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:11px;font-family:var(--font-mono)}
+.log-row:last-child{border-bottom:none}
+.log-time{color:var(--color-text-tertiary);white-space:nowrap;flex-shrink:0}
+.log-level{width:44px;text-align:center;flex-shrink:0;font-weight:500}
+.log-level.info{color:#1D4ED8}
+.log-level.warn{color:#B45309}
+.log-level.err{color:#991B1B}
+.log-msg{color:var(--color-text-secondary);flex:1;line-height:1.5}
+
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 16px;color:var(--color-text-tertiary);text-align:center;gap:10px}
+.empty-state i{font-size:32px}
+.empty-state p{font-size:13px}
+
+.upload-zone{border:1.5px dashed var(--color-border-secondary);border-radius:var(--border-radius-lg);padding:32px;text-align:center;cursor:pointer;color:var(--color-text-secondary);font-size:13px;transition:border-color .12s}
+.upload-zone:hover{border-color:#4F46E5;color:#4338CA}
+.upload-zone i{font-size:28px;margin-bottom:8px;display:block}
+
+.metric-toggle{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px}
+.metric-toggle:last-child{border-bottom:none}
+.toggle-sw{width:30px;height:17px;border-radius:9px;background:#4F46E5;position:relative;cursor:pointer;flex-shrink:0}
+.toggle-sw.off{background:var(--color-border-secondary)}
+.toggle-sw::after{content:'';position:absolute;width:13px;height:13px;border-radius:50%;background:#fff;top:2px;right:2px;transition:transform .15s}
+.toggle-sw.off::after{right:auto;left:2px}
+
+.progress-bar{height:8px;border-radius:4px;background:var(--color-background-secondary);overflow:hidden;margin:8px 0}
+.progress-fill{height:100%;border-radius:4px;background:#4F46E5;transition:width 1s}
+
+.comparison-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px}
+.comparison-row:last-child{border-bottom:none}
+.comp-metric{flex:1;color:var(--color-text-secondary)}
+.comp-a{width:60px;text-align:center;font-weight:500}
+.comp-b{width:60px;text-align:center;font-weight:500}
+.comp-delta{width:52px;text-align:right;font-size:11px}
+
+input[type=text],input[type=search],select,textarea{font-family:var(--font-sans);font-size:12px;color:var(--color-text-primary);background:var(--color-background-primary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);padding:7px 10px;width:100%;outline:none}
+input[type=text]:focus,input[type=search]:focus,select:focus,textarea:focus{border-color:#4F46E5;box-shadow:0 0 0 2px #EEF2FF}
+.form-label{font-size:11px;font-weight:500;color:var(--color-text-secondary);margin-bottom:4px;margin-top:10px;display:block;text-transform:uppercase;letter-spacing:.04em}
+.form-group{margin-bottom:12px}
+
+.red-team-test{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);margin-bottom:8px;font-size:12px;cursor:pointer}
+.red-team-test:hover{background:var(--color-background-secondary)}
+.test-name{font-weight:500;color:var(--color-text-primary)}
+.test-desc{font-size:11px;color:var(--color-text-secondary);margin-top:2px}
+
+.setting-row{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:0.5px solid var(--color-border-tertiary)}
+.setting-row:last-child{border-bottom:none}
+.setting-info .setting-name{font-size:13px;font-weight:500;color:var(--color-text-primary)}
+.setting-info .setting-desc{font-size:12px;color:var(--color-text-secondary);margin-top:2px}
+
+.onboard-step{display:flex;align-items:flex-start;gap:14px;padding:16px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);margin-bottom:12px}
+.onboard-step.done-ob{background:#F0FDF4;border-color:#86EFAC}
+.onboard-num{width:32px;height:32px;border-radius:50%;background:#EEF2FF;color:#4338CA;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;flex-shrink:0}
+.onboard-num.done-ob{background:#22C55E;color:#fff}
+.onboard-content .ob-title{font-size:13px;font-weight:500;color:var(--color-text-primary)}
+.onboard-content .ob-desc{font-size:12px;color:var(--color-text-secondary);margin-top:3px}
+
+.screen-nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;padding:12px;background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg)}
+.screen-nav-btn{padding:5px 10px;font-size:11px;border-radius:var(--border-radius-md);cursor:pointer;border:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);color:var(--color-text-secondary);font-family:var(--font-sans)}
+.screen-nav-btn.cur{background:#4F46E5;color:#fff;border-color:#4F46E5}
+.screen-nav-btn:hover:not(.cur){background:var(--color-background-primary);color:var(--color-text-primary)}
+</style>
+
+<h2 class="sr-only" style="position:absolute;left:-9999px">AgentOps platform wireframes — interactive multi-screen prototype with sidebar navigation and 10 screens covering agents, evaluation, traces, logs, red teaming, and settings</h2>
+
+<div class="shell">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark"><i class="ti ti-brain" aria-hidden="true"></i></div>
+      <div><div class="logo-text">AgentOps</div><div class="logo-sub">GCP Platform</div></div>
+    </div>
+    <div class="ws-selector">
+      <i class="ti ti-building" aria-hidden="true"></i>
+      <span>my-gcp-project</span>
+      <i class="ti ti-chevron-down" aria-hidden="true"></i>
+    </div>
+    <div class="nav-section">Platform</div>
+    <div class="nav-item active" id="nav-dash" onclick="show('dash','nav-dash')"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
+    <div class="nav-item" id="nav-agents" onclick="show('agents','nav-agents')"><i class="ti ti-robot"></i>Agents<span class="badge">8</span></div>
+    <div class="nav-section">Evaluation</div>
+    <div class="nav-item" id="nav-eval" onclick="show('eval','nav-eval')"><i class="ti ti-flask"></i>Run Evaluation</div>
+    <div class="nav-item" id="nav-results" onclick="show('results','nav-results')"><i class="ti ti-chart-bar"></i>Results</div>
+    <div class="nav-item" id="nav-history" onclick="show('history','nav-history')"><i class="ti ti-history"></i>History</div>
+    <div class="nav-section">Observability</div>
+    <div class="nav-item" id="nav-traces" onclick="show('traces','nav-traces')"><i class="ti ti-topology-star"></i>Traces</div>
+    <div class="nav-item" id="nav-logs" onclick="show('logs','nav-logs')"><i class="ti ti-terminal-2"></i>Logs</div>
+    <div class="nav-section">Testing</div>
+    <div class="nav-item" id="nav-red" onclick="show('red','nav-red')"><i class="ti ti-shield-exclamation"></i>Red Teaming</div>
+    <div class="nav-section">Setup</div>
+    <div class="nav-item" id="nav-onboard" onclick="show('onboard','nav-onboard')"><i class="ti ti-rocket"></i>Onboarding</div>
+    <div class="nav-item" id="nav-settings" onclick="show('settings','nav-settings')"><i class="ti ti-settings"></i>Settings</div>
+    <div class="sidebar-footer">
+      <div class="avatar-row">
+        <div class="avatar">AK</div>
+        <div class="avatar-info"><div class="avatar-name">Arjun Kumar</div><div class="avatar-role">Admin</div></div>
+        <i class="ti ti-dots" style="font-size:14px;color:var(--color-text-tertiary)" aria-hidden="true"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div class="breadcrumb" id="breadcrumb">
+        <i class="ti ti-layout-dashboard" style="font-size:14px" aria-hidden="true"></i>
+        <span class="cur">Dashboard</span>
+      </div>
+      <div class="topbar-actions">
+        <input type="search" placeholder="Search agents, runs..." style="width:200px">
+        <button class="btn"><i class="ti ti-refresh"></i>Sync GCP</button>
+        <button class="btn primary" onclick="show('eval','nav-eval')"><i class="ti ti-plus"></i>New Eval</button>
+      </div>
+    </div>
+    <div class="content">
+
+    <!-- SCREEN NAV (mini) -->
+    <div class="screen-nav">
+      <span style="font-size:11px;color:var(--color-text-tertiary);line-height:26px;margin-right:4px">Screens:</span>
+      <button class="screen-nav-btn cur" id="sn-dash" onclick="show('dash','nav-dash')">Dashboard</button>
+      <button class="screen-nav-btn" id="sn-agents" onclick="show('agents','nav-agents')">Agents</button>
+      <button class="screen-nav-btn" id="sn-detail" onclick="show('detail','nav-agents')">Agent Detail</button>
+      <button class="screen-nav-btn" id="sn-eval" onclick="show('eval','nav-eval')">Run Eval</button>
+      <button class="screen-nav-btn" id="sn-results" onclick="show('results','nav-results')">Results</button>
+      <button class="screen-nav-btn" id="sn-history" onclick="show('history','nav-history')">History</button>
+      <button class="screen-nav-btn" id="sn-traces" onclick="show('traces','nav-traces')">Traces</button>
+      <button class="screen-nav-btn" id="sn-logs" onclick="show('logs','nav-logs')">Logs</button>
+      <button class="screen-nav-btn" id="sn-red" onclick="show('red','nav-red')">Red Team</button>
+      <button class="screen-nav-btn" id="sn-onboard" onclick="show('onboard','nav-onboard')">Onboarding</button>
+      <button class="screen-nav-btn" id="sn-settings" onclick="show('settings','nav-settings')">Settings</button>
+    </div>
+
+    <!-- === SCREEN: DASHBOARD === -->
+    <div class="screen active" id="screen-dash">
+      <div class="page-header">
+        <div class="page-title">Platform Overview</div>
+        <div class="page-sub">All agents across your GCP environment — last synced 2 min ago</div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Total agents</div><div class="stat-val">8</div><div class="stat-meta"><span class="stat-dot dot-green"></span>6 healthy · 2 degraded</div></div>
+        <div class="stat-card"><div class="stat-label">Eval runs (7d)</div><div class="stat-val">24</div><div class="stat-meta"><span class="stat-dot dot-blue"></span>3 running now</div></div>
+        <div class="stat-card"><div class="stat-label">Avg faithfulness</div><div class="stat-val">0.84</div><div class="stat-meta"><span class="stat-dot dot-green"></span>↑ 0.03 from last run</div></div>
+        <div class="stat-card"><div class="stat-label">Failures (24h)</div><div class="stat-val">12</div><div class="stat-meta"><span class="stat-dot dot-amber"></span>3 agents affected</div></div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Agent health</div><button class="btn" style="font-size:11px" onclick="show('agents','nav-agents')">View all</button></div>
+          <table class="agent-table">
+            <tr><th>Agent</th><th>Type</th><th>Status</th><th>Last eval</th></tr>
+            <tr onclick="show('detail','nav-agents')"><td><div class="agent-name"><div class="agent-icon ai-purple"><i class="ti ti-robot" aria-hidden="true"></i></div>rag-assistant</div></td><td><span class="badge badge-purple">Vertex AI</span></td><td><span class="badge badge-green">Healthy</span></td><td>0.87</td></tr>
+            <tr onclick="show('detail','nav-agents')"><td><div class="agent-name"><div class="agent-icon ai-teal"><i class="ti ti-robot" aria-hidden="true"></i></div>sql-agent</div></td><td><span class="badge badge-blue">Cloud Run</span></td><td><span class="badge badge-green">Healthy</span></td><td>0.79</td></tr>
+            <tr onclick="show('detail','nav-agents')"><td><div class="agent-name"><div class="agent-icon ai-amber"><i class="ti ti-robot" aria-hidden="true"></i></div>doc-summarizer</div></td><td><span class="badge badge-amber">GKE</span></td><td><span class="badge badge-amber">Degraded</span></td><td>0.61</td></tr>
+            <tr onclick="show('detail','nav-agents')"><td><div class="agent-name"><div class="agent-icon ai-blue"><i class="ti ti-robot" aria-hidden="true"></i></div>code-reviewer</div></td><td><span class="badge badge-blue">Cloud Run</span></td><td><span class="badge badge-green">Healthy</span></td><td>0.91</td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Recent eval runs</div><button class="btn" style="font-size:11px" onclick="show('history','nav-history')">View history</button></div>
+          <table class="agent-table">
+            <tr><th>Run</th><th>Agent</th><th>Score</th><th>Status</th></tr>
+            <tr onclick="show('results','nav-results')"><td style="font-family:var(--font-mono);font-size:11px">eval-0047</td><td>rag-assistant</td><td>0.87</td><td><span class="badge badge-green">Passed</span></td></tr>
+            <tr onclick="show('results','nav-results')"><td style="font-family:var(--font-mono);font-size:11px">eval-0046</td><td>code-reviewer</td><td>0.91</td><td><span class="badge badge-green">Passed</span></td></tr>
+            <tr onclick="show('results','nav-results')"><td style="font-family:var(--font-mono);font-size:11px">eval-0045</td><td>doc-summarizer</td><td>0.61</td><td><span class="badge badge-red">Failed</span></td></tr>
+            <tr onclick="show('results','nav-results')"><td style="font-family:var(--font-mono);font-size:11px">eval-0044</td><td>sql-agent</td><td>0.79</td><td><span class="badge badge-amber">Partial</span></td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="card full-width">
+        <div class="card-header"><div class="card-title">Metric trends (7d)</div><div class="card-actions"><span class="badge badge-gray">Faithfulness</span><span class="badge badge-gray">Relevancy</span><span class="badge badge-gray">Latency</span></div></div>
+        <svg width="100%" viewBox="0 0 580 90" style="display:block">
+          <polyline points="0,70 80,60 160,50 240,65 320,40 400,35 480,42 560,28" fill="none" stroke="#4F46E5" stroke-width="2" stroke-linecap="round"/>
+          <polyline points="0,80 80,75 160,68 240,78 320,60 400,55 480,62 560,48" fill="none" stroke="#22C55E" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="4 3"/>
+          <text x="0" y="88" style="font-size:10px;fill:var(--color-text-tertiary)">Mon</text>
+          <text x="80" y="88" style="font-size:10px;fill:var(--color-text-tertiary)" text-anchor="middle">Tue</text>
+          <text x="160" y="88" style="font-size:10px;fill:var(--color-text-tertiary)" text-anchor="middle">Wed</text>
+          <text x="240" y="88" style="font-size:10px;fill:var(--color-text-tertiary)" text-anchor="middle">Thu</text>
+          <text x="320" y="88" style="font-size:10px;fill:var(--color-text-tertiary)" text-anchor="middle">Fri</text>
+          <text x="400" y="88" style="font-size:10px;fill:var(--color-text-tertiary)" text-anchor="middle">Sat</text>
+          <text x="480" y="88" style="font-size:10px;fill:var(--color-text-tertiary)" text-anchor="middle">Sun</text>
+          <text x="560" y="88" style="font-size:10px;fill:var(--color-text-tertiary)" text-anchor="end">Today</text>
+        </svg>
+        <div style="display:flex;gap:16px;margin-top:4px">
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--color-text-secondary)"><div style="width:16px;height:2px;background:#4F46E5;border-radius:1px"></div>Faithfulness</div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--color-text-secondary)"><div style="width:16px;height:2px;background:#22C55E;border-radius:1px;border-top:1.5px dashed #22C55E"></div>Relevancy</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- === SCREEN: AGENTS === -->
+    <div class="screen" id="screen-agents">
+      <div class="page-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div><div class="page-title">All Agents</div><div class="page-sub">Discovered from Vertex AI, Cloud Run, and GKE</div></div>
+        <div style="display:flex;gap:8px"><button class="btn"><i class="ti ti-filter"></i>Filter</button><button class="btn primary"><i class="ti ti-refresh"></i>Re-discover</button></div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Vertex AI</div><div class="stat-val">3</div></div>
+        <div class="stat-card"><div class="stat-label">Cloud Run</div><div class="stat-val">3</div></div>
+        <div class="stat-card"><div class="stat-label">GKE</div><div class="stat-val">2</div></div>
+        <div class="stat-card"><div class="stat-label">Unhealthy</div><div class="stat-val" style="color:#EF4444">2</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Agent registry</div><div class="card-actions"><input type="search" placeholder="Filter agents..." style="width:180px"><select style="width:130px"><option>All types</option><option>Vertex AI</option><option>Cloud Run</option><option>GKE</option></select></div></div>
+        <table class="agent-table">
+          <tr><th>Name</th><th>Platform</th><th>Model</th><th>Status</th><th>Last active</th><th>Last eval</th><th></th></tr>
+          <tr onclick="show('detail','nav-agents')"><td><div class="agent-name"><div class="agent-icon ai-purple"><i class="ti ti-robot" aria-hidden="true"></i></div><div><div>rag-assistant</div><div style="font-size:10px;color:var(--color-text-tertiary);font-weight:400">us-central1</div></div></div></td><td><span class="badge badge-purple">Vertex AI</span></td><td style="font-family:var(--font-mono);font-size:11px">gemini-1.5-pro</td><td><span class="badge badge-green">Healthy</span></td><td style="color:var(--color-text-secondary)">2m ago</td><td>0.87 <span class="badge badge-green">Pass</span></td><td><button class="btn" style="font-size:11px" onclick="show('eval','nav-eval')">Evaluate</button></td></tr>
+          <tr onclick="show('detail','nav-agents')"><td><div class="agent-name"><div class="agent-icon ai-teal"><i class="ti ti-robot" aria-hidden="true"></i></div><div><div>sql-agent</div><div style="font-size:10px;color:var(--color-text-tertiary);font-weight:400">us-east1</div></div></div></td><td><span class="badge badge-blue">Cloud Run</span></td><td style="font-family:var(--font-mono);font-size:11px">gemini-1.5-flash</td><td><span class="badge badge-green">Healthy</span></td><td style="color:var(--color-text-secondary)">8m ago</td><td>0.79 <span class="badge badge-amber">Warn</span></td><td><button class="btn" style="font-size:11px" onclick="show('eval','nav-eval')">Evaluate</button></td></tr>
+          <tr onclick="show('detail','nav-agents')"><td><div class="agent-name"><div class="agent-icon ai-amber"><i class="ti ti-robot" aria-hidden="true"></i></div><div><div>doc-summarizer</div><div style="font-size:10px;color:var(--color-text-tertiary);font-weight:400">eu-west1</div></div></div></td><td><span class="badge badge-amber">GKE</span></td><td style="font-family:var(--font-mono);font-size:11px">gemini-1.0-pro</td><td><span class="badge badge-amber">Degraded</span></td><td style="color:var(--color-text-secondary)">1h ago</td><td>0.61 <span class="badge badge-red">Fail</span></td><td><button class="btn" style="font-size:11px" onclick="show('eval','nav-eval')">Evaluate</button></td></tr>
+          <tr onclick="show('detail','nav-agents')"><td><div class="agent-name"><div class="agent-icon ai-blue"><i class="ti ti-robot" aria-hidden="true"></i></div><div><div>code-reviewer</div><div style="font-size:10px;color:var(--color-text-tertiary);font-weight:400">us-central1</div></div></div></td><td><span class="badge badge-blue">Cloud Run</span></td><td style="font-family:var(--font-mono);font-size:11px">gemini-1.5-pro</td><td><span class="badge badge-green">Healthy</span></td><td style="color:var(--color-text-secondary)">14m ago</td><td>0.91 <span class="badge badge-green">Pass</span></td><td><button class="btn" style="font-size:11px" onclick="show('eval','nav-eval')">Evaluate</button></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- === SCREEN: AGENT DETAIL === -->
+    <div class="screen" id="screen-detail">
+      <div class="page-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="agent-icon ai-purple" style="width:36px;height:36px"><i class="ti ti-robot" style="font-size:18px" aria-hidden="true"></i></div>
+          <div><div class="page-title" style="margin:0">rag-assistant</div><div class="page-sub">Vertex AI Agent Engine · us-central1</div></div>
+          <span class="badge badge-green">Healthy</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="show('traces','nav-traces')"><i class="ti ti-topology-star"></i>View traces</button>
+          <button class="btn primary" onclick="show('eval','nav-eval')"><i class="ti ti-flask"></i>Run eval</button>
+        </div>
+      </div>
+      <div class="tab-bar">
+        <div class="tab active" onclick="switchTab(this,'overview')">Overview</div>
+        <div class="tab" onclick="switchTab(this,'deployment')">Deployment</div>
+        <div class="tab" onclick="switchTab(this,'traces-tab')">Traces</div>
+        <div class="tab" onclick="switchTab(this,'evals-tab')">Eval history</div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Avg latency (p50)</div><div class="stat-val">1.2s</div><div class="stat-meta">p95: 4.1s</div></div>
+        <div class="stat-card"><div class="stat-label">Token usage (24h)</div><div class="stat-val">184k</div><div class="stat-meta">↑ 12% vs yesterday</div></div>
+        <div class="stat-card"><div class="stat-label">Error rate</div><div class="stat-val">1.4%</div><div class="stat-meta">3 errors in 24h</div></div>
+        <div class="stat-card"><div class="stat-label">Last eval score</div><div class="stat-val">0.87</div><div class="stat-meta">eval-0047 · 2h ago</div></div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Deployment info</div></div>
+          <div class="kv-row"><span class="kv-key">Endpoint</span><span class="kv-val">https://us-central1-aiplatform...agent</span></div>
+          <div class="kv-row"><span class="kv-key">Model</span><span class="kv-val">gemini-1.5-pro-002</span></div>
+          <div class="kv-row"><span class="kv-key">Framework</span><span class="kv-val">Google ADK 0.4.0</span></div>
+          <div class="kv-row"><span class="kv-key">Region</span><span class="kv-val">us-central1</span></div>
+          <div class="kv-row"><span class="kv-key">Project</span><span class="kv-val">my-gcp-project-id</span></div>
+          <div class="kv-row"><span class="kv-key">Tools</span><span class="kv-val">vertex_search, code_exec, bigquery</span></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Tool usage (7d)</div></div>
+          <div style="font-size:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--color-text-secondary)">vertex_search</span><span style="font-weight:500">1,240</span></div>
+            <div class="mini-bar"><div class="mini-bar-fill" style="width:85%"></div></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;margin-top:10px"><span style="color:var(--color-text-secondary)">code_exec</span><span style="font-weight:500">328</span></div>
+            <div class="mini-bar"><div class="mini-bar-fill" style="width:35%;background:#22C55E"></div></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;margin-top:10px"><span style="color:var(--color-text-secondary)">bigquery</span><span style="font-weight:500">88</span></div>
+            <div class="mini-bar"><div class="mini-bar-fill" style="width:10%;background:#F59E0B"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="card full-width">
+        <div class="card-header"><div class="card-title">Recent traces</div><button class="btn" style="font-size:11px" onclick="show('traces','nav-traces')">View all</button></div>
+        <div class="trace-row">
+          <div class="trace-line"><div class="trace-dot" style="background:#22C55E"></div><div class="trace-vert"></div></div>
+          <div class="trace-content"><div class="trace-label">User prompt received</div><div class="trace-body">What are the Q3 revenue numbers broken down by region?</div></div>
+          <span class="trace-time">0ms</span>
+        </div>
+        <div class="trace-row">
+          <div class="trace-line"><div class="trace-dot" style="background:#4F46E5"></div><div class="trace-vert"></div></div>
+          <div class="trace-content"><div class="trace-label">Tool call: vertex_search</div><div class="trace-body">query: "Q3 revenue by region 2024"</div></div>
+          <span class="trace-time">180ms</span>
+        </div>
+        <div class="trace-row">
+          <div class="trace-line"><div class="trace-dot" style="background:#4F46E5"></div><div class="trace-vert"></div></div>
+          <div class="trace-content"><div class="trace-label">Retrieved 4 context chunks</div><div class="trace-meta">Top score: 0.94 · 1,240 tokens</div></div>
+          <span class="trace-time">620ms</span>
+        </div>
+        <div class="trace-row">
+          <div class="trace-line"><div class="trace-dot" style="background:#22C55E"></div></div>
+          <div class="trace-content"><div class="trace-label">Final response generated</div><div class="trace-meta">1,108 tokens · gemini-1.5-pro</div></div>
+          <span class="trace-time">1,240ms</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- === SCREEN: RUN EVAL === -->
+    <div class="screen" id="screen-eval">
+      <div class="page-header"><div class="page-title">Run evaluation</div><div class="page-sub">Configure and launch an evaluation job against one or more agents</div></div>
+      <div class="two-col" style="align-items:start">
+        <div>
+          <div class="card full-width" style="margin-bottom:16px">
+            <div class="card-header"><div class="card-title">1 · Select agent</div></div>
+            <div class="form-group">
+              <label class="form-label">Agent</label>
+              <select><option>rag-assistant (Vertex AI)</option><option>sql-agent (Cloud Run)</option><option>doc-summarizer (GKE)</option><option>code-reviewer (Cloud Run)</option></select>
+            </div>
+          </div>
+          <div class="card full-width" style="margin-bottom:16px">
+            <div class="card-header"><div class="card-title">2 · Dataset / prompts</div></div>
+            <div class="tab-bar" style="margin-bottom:12px">
+              <div class="tab active">Upload file</div>
+              <div class="tab">Manual input</div>
+              <div class="tab">Past datasets</div>
+            </div>
+            <div class="upload-zone">
+              <i class="ti ti-upload" aria-hidden="true"></i>
+              Drop a CSV or JSON file here<br>
+              <span style="font-size:11px;margin-top:4px;display:block;color:var(--color-text-tertiary)">Format: {input, expected_output, context}</span>
+              <button class="btn" style="margin-top:10px;font-size:11px">Browse files</button>
+            </div>
+            <div style="margin-top:10px;font-size:12px;color:var(--color-text-secondary)">Or enter prompts manually:</div>
+            <textarea rows="3" placeholder="Enter test prompt..." style="margin-top:6px;resize:vertical"></textarea>
+            <button class="btn" style="margin-top:8px;font-size:11px"><i class="ti ti-plus"></i>Add prompt</button>
+          </div>
+        </div>
+        <div>
+          <div class="card full-width" style="margin-bottom:16px">
+            <div class="card-header"><div class="card-title">3 · Metrics</div></div>
+            <div class="metric-toggle"><span style="color:var(--color-text-primary)">Faithfulness</span><div class="toggle-sw"></div></div>
+            <div class="metric-toggle"><span style="color:var(--color-text-primary)">Answer relevancy</span><div class="toggle-sw"></div></div>
+            <div class="metric-toggle"><span style="color:var(--color-text-primary)">Hallucination score</span><div class="toggle-sw off"></div></div>
+            <div class="metric-toggle"><span style="color:var(--color-text-primary)">Context precision</span><div class="toggle-sw off"></div></div>
+            <div class="metric-toggle"><span style="color:var(--color-text-primary)">Latency</span><div class="toggle-sw"></div></div>
+            <div class="metric-toggle"><span style="color:var(--color-text-primary)">Token usage</span><div class="toggle-sw off"></div></div>
+          </div>
+          <div class="card full-width" style="margin-bottom:16px">
+            <div class="card-header"><div class="card-title">4 · Framework</div></div>
+            <div class="form-group">
+              <label class="form-label">Evaluation engine</label>
+              <select><option>Vertex AI Evaluation</option><option>Ragas</option><option>DeepEval</option><option>Promptfoo</option></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Run name (optional)</label>
+              <input type="text" placeholder="e.g. rag-assistant-v2-test">
+            </div>
+          </div>
+          <button class="btn primary" style="width:100%;justify-content:center;padding:10px" onclick="show('results','nav-results')"><i class="ti ti-player-play"></i>Launch evaluation</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- === SCREEN: RESULTS === -->
+    <div class="screen" id="screen-results">
+      <div class="page-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div><div class="page-title">Eval results · eval-0047</div><div class="page-sub">rag-assistant · Vertex AI Evaluation · 50 test cases · completed 2h ago</div></div>
+        <div style="display:flex;gap:8px"><button class="btn"><i class="ti ti-download"></i>Export</button><button class="btn" onclick="show('history','nav-history')"><i class="ti ti-history"></i>History</button></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
+        <div class="card" style="padding:12px;text-align:center"><div class="ring-val" style="color:#22C55E">0.87</div><div class="ring-bar"><div class="ring-fill" style="width:87%;background:#22C55E"></div></div><div class="ring-label" style="margin-top:6px">Faithfulness</div></div>
+        <div class="card" style="padding:12px;text-align:center"><div class="ring-val" style="color:#4F46E5">0.82</div><div class="ring-bar"><div class="ring-fill" style="width:82%;background:#4F46E5"></div></div><div class="ring-label" style="margin-top:6px">Relevancy</div></div>
+        <div class="card" style="padding:12px;text-align:center"><div class="ring-val" style="color:#22C55E">0.91</div><div class="ring-bar"><div class="ring-fill" style="width:91%;background:#22C55E"></div></div><div class="ring-label" style="margin-top:6px">Precision</div></div>
+        <div class="card" style="padding:12px;text-align:center"><div class="ring-val" style="color:#F59E0B">1.2s</div><div class="ring-bar"><div class="ring-fill" style="width:55%;background:#F59E0B"></div></div><div class="ring-label" style="margin-top:6px">Avg latency</div></div>
+        <div class="card" style="padding:12px;text-align:center"><div class="ring-val" style="color:#EF4444">6</div><div class="ring-bar"><div class="ring-fill" style="width:12%;background:#EF4444"></div></div><div class="ring-label" style="margin-top:6px">Failed cases</div></div>
+      </div>
+      <div class="card full-width">
+        <div class="card-header"><div class="card-title">Per-question breakdown</div><div class="card-actions"><select style="width:130px"><option>All cases</option><option>Failed only</option><option>Passed only</option></select></div></div>
+        <table class="agent-table">
+          <tr><th>#</th><th>Input</th><th>Faith.</th><th>Relev.</th><th>Latency</th><th>Result</th><th></th></tr>
+          <tr><td style="color:var(--color-text-tertiary)">1</td><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">What are the Q3 revenue numbers...</td><td>0.92</td><td>0.88</td><td>1.1s</td><td><span class="badge badge-green">Pass</span></td><td><button class="btn" style="font-size:11px" onclick="show('traces','nav-traces')">Trace</button></td></tr>
+          <tr><td style="color:var(--color-text-tertiary)">2</td><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Summarize the latest product update...</td><td>0.85</td><td>0.79</td><td>1.4s</td><td><span class="badge badge-green">Pass</span></td><td><button class="btn" style="font-size:11px" onclick="show('traces','nav-traces')">Trace</button></td></tr>
+          <tr style="background:#FEF2F2"><td style="color:var(--color-text-tertiary)">3</td><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">What is the CEO's home address?</td><td>0.21</td><td>0.18</td><td>0.8s</td><td><span class="badge badge-red">Fail</span></td><td><button class="btn" style="font-size:11px" onclick="show('traces','nav-traces')">Debug</button></td></tr>
+          <tr><td style="color:var(--color-text-tertiary)">4</td><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">List all recent board decisions...</td><td>0.88</td><td>0.84</td><td>2.1s</td><td><span class="badge badge-green">Pass</span></td><td><button class="btn" style="font-size:11px" onclick="show('traces','nav-traces')">Trace</button></td></tr>
+          <tr style="background:#FEF2F2"><td style="color:var(--color-text-tertiary)">5</td><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">How do I bypass the security filter?</td><td>0.10</td><td>0.12</td><td>0.6s</td><td><span class="badge badge-red">Fail</span></td><td><button class="btn" style="font-size:11px" onclick="show('traces','nav-traces')">Debug</button></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- === SCREEN: HISTORY === -->
+    <div class="screen" id="screen-history">
+      <div class="page-header"><div class="page-title">Evaluation history</div><div class="page-sub">All past eval runs — compare across runs to track improvements</div></div>
+      <div class="two-col" style="align-items:start">
+        <div class="card">
+          <div class="card-header"><div class="card-title">All runs</div><div class="card-actions"><select style="width:140px"><option>All agents</option><option>rag-assistant</option><option>sql-agent</option></select></div></div>
+          <table class="agent-table">
+            <tr><th>Run ID</th><th>Agent</th><th>Score</th><th>Date</th><th>Status</th></tr>
+            <tr onclick="show('results','nav-results')"><td style="font-family:var(--font-mono);font-size:11px">eval-0047</td><td>rag-assistant</td><td>0.87</td><td style="color:var(--color-text-secondary)">Today</td><td><span class="badge badge-green">Pass</span></td></tr>
+            <tr onclick="show('results','nav-results')"><td style="font-family:var(--font-mono);font-size:11px">eval-0046</td><td>code-reviewer</td><td>0.91</td><td style="color:var(--color-text-secondary)">Yesterday</td><td><span class="badge badge-green">Pass</span></td></tr>
+            <tr onclick="show('results','nav-results')"><td style="font-family:var(--font-mono);font-size:11px">eval-0045</td><td>doc-summarizer</td><td>0.61</td><td style="color:var(--color-text-secondary)">2 days ago</td><td><span class="badge badge-red">Fail</span></td></tr>
+            <tr onclick="show('results','nav-results')"><td style="font-family:var(--font-mono);font-size:11px">eval-0044</td><td>rag-assistant</td><td>0.81</td><td style="color:var(--color-text-secondary)">3 days ago</td><td><span class="badge badge-amber">Warn</span></td></tr>
+            <tr onclick="show('results','nav-results')"><td style="font-family:var(--font-mono);font-size:11px">eval-0043</td><td>sql-agent</td><td>0.74</td><td style="color:var(--color-text-secondary)">4 days ago</td><td><span class="badge badge-amber">Warn</span></td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Compare runs</div><div class="card-actions"><span class="badge badge-blue">eval-0047 vs eval-0044</span></div></div>
+          <div class="comparison-row" style="font-weight:500;color:var(--color-text-tertiary);font-size:11px">
+            <div class="comp-metric">Metric</div>
+            <div class="comp-a" style="color:#4F46E5">eval-0047</div>
+            <div class="comp-b" style="color:#F59E0B">eval-0044</div>
+            <div class="comp-delta">Δ</div>
+          </div>
+          <div class="comparison-row"><div class="comp-metric">Faithfulness</div><div class="comp-a">0.87</div><div class="comp-b">0.81</div><div class="comp-delta" style="color:#22C55E">+0.06 ↑</div></div>
+          <div class="comparison-row"><div class="comp-metric">Relevancy</div><div class="comp-a">0.82</div><div class="comp-b">0.78</div><div class="comp-delta" style="color:#22C55E">+0.04 ↑</div></div>
+          <div class="comparison-row"><div class="comp-metric">Precision</div><div class="comp-a">0.91</div><div class="comp-b">0.88</div><div class="comp-delta" style="color:#22C55E">+0.03 ↑</div></div>
+          <div class="comparison-row"><div class="comp-metric">Avg latency</div><div class="comp-a">1.2s</div><div class="comp-b">1.8s</div><div class="comp-delta" style="color:#22C55E">−0.6s ↑</div></div>
+          <div class="comparison-row"><div class="comp-metric">Failed cases</div><div class="comp-a">6</div><div class="comp-b">11</div><div class="comp-delta" style="color:#22C55E">−5 ↑</div></div>
+          <div style="margin-top:12px;font-size:12px;color:var(--color-text-secondary);background:var(--color-background-secondary);padding:10px;border-radius:var(--border-radius-md)">
+            <i class="ti ti-sparkles" style="font-size:14px;color:#4F46E5;vertical-align:-2px" aria-hidden="true"></i> All metrics improved since eval-0044. Faithfulness up +0.06, failures down by 5.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- === SCREEN: TRACES === -->
+    <div class="screen" id="screen-traces">
+      <div class="page-header"><div class="page-title">Traces</div><div class="page-sub">Execution traces across all agents — powered by OpenTelemetry</div></div>
+      <div class="two-col" style="align-items:start">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Trace list</div><div class="card-actions"><input type="search" placeholder="Filter..." style="width:140px"><select style="width:120px"><option>All agents</option><option>rag-assistant</option></select></div></div>
+          <table class="agent-table">
+            <tr><th>Trace ID</th><th>Agent</th><th>Latency</th><th>Status</th></tr>
+            <tr style="background:var(--color-background-secondary)"><td style="font-family:var(--font-mono);font-size:10px">tr-a4f92b</td><td>rag-assistant</td><td>1.24s</td><td><span class="badge badge-green">OK</span></td></tr>
+            <tr><td style="font-family:var(--font-mono);font-size:10px">tr-b3e11c</td><td>sql-agent</td><td>0.88s</td><td><span class="badge badge-green">OK</span></td></tr>
+            <tr><td style="font-family:var(--font-mono);font-size:10px">tr-c9d44a</td><td>doc-summarizer</td><td>5.10s</td><td><span class="badge badge-red">Error</span></td></tr>
+            <tr><td style="font-family:var(--font-mono);font-size:10px">tr-d1f80e</td><td>rag-assistant</td><td>1.08s</td><td><span class="badge badge-green">OK</span></td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Trace · tr-a4f92b</div><span class="badge badge-blue">1.24s total</span></div>
+          <div class="trace-row">
+            <div class="trace-line"><div class="trace-dot" style="background:#4F46E5"></div><div class="trace-vert"></div></div>
+            <div class="trace-content"><div class="trace-label">Invoke agent</div><div class="trace-meta">rag-assistant · POST /invoke</div></div>
+            <span class="trace-time">0ms</span>
+          </div>
+          <div class="trace-row">
+            <div class="trace-line"><div class="trace-dot" style="background:#4F46E5"></div><div class="trace-vert"></div></div>
+            <div class="trace-content"><div class="trace-label">Input received</div><div class="trace-body">What are the Q3 revenue numbers by region?</div></div>
+            <span class="trace-time">12ms</span>
+          </div>
+          <div class="trace-row">
+            <div class="trace-line"><div class="trace-dot" style="background:#F59E0B"></div><div class="trace-vert"></div></div>
+            <div class="trace-content"><div class="trace-label">Tool call · vertex_search</div><div class="trace-body">query: "Q3 revenue by region 2024"</div><div class="trace-meta" style="margin-top:4px">→ 4 chunks · 1,240 tokens retrieved</div></div>
+            <span class="trace-time">180ms</span>
+          </div>
+          <div class="trace-row">
+            <div class="trace-line"><div class="trace-dot" style="background:#F59E0B"></div><div class="trace-vert"></div></div>
+            <div class="trace-content"><div class="trace-label">LLM call · gemini-1.5-pro</div><div class="trace-meta">in: 1,892 tokens · out: 428 tokens</div></div>
+            <span class="trace-time">640ms</span>
+          </div>
+          <div class="trace-row">
+            <div class="trace-line"><div class="trace-dot" style="background:#22C55E"></div></div>
+            <div class="trace-content"><div class="trace-label">Response returned</div><div class="trace-meta">HTTP 200 · 428 tokens</div></div>
+            <span class="trace-time">1,240ms</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- === SCREEN: LOGS === -->
+    <div class="screen" id="screen-logs">
+      <div class="page-header"><div class="page-title">Logs</div><div class="page-sub">Centralized logs from Cloud Run, GKE, and Vertex AI — via Cloud Logging</div></div>
+      <div class="card full-width">
+        <div class="card-header">
+          <div class="card-actions" style="width:100%;gap:8px;flex-wrap:wrap">
+            <input type="search" placeholder="Search logs..." style="flex:1;min-width:180px">
+            <select style="width:130px"><option>All agents</option><option>rag-assistant</option><option>sql-agent</option><option>doc-summarizer</option></select>
+            <select style="width:100px"><option>All levels</option><option>INFO</option><option>WARN</option><option>ERROR</option></select>
+            <select style="width:110px"><option>Last 1 hour</option><option>Last 24h</option><option>Last 7d</option></select>
+            <button class="btn"><i class="ti ti-refresh"></i>Refresh</button>
+          </div>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:11px">
+          <div class="log-row"><span class="log-time">10:42:01</span><span class="log-level info">INFO</span><span class="log-msg">[rag-assistant] Received invoke request · trace=tr-a4f92b</span></div>
+          <div class="log-row"><span class="log-time">10:42:01</span><span class="log-level info">INFO</span><span class="log-msg">[rag-assistant] Tool call: vertex_search · query="Q3 revenue by region"</span></div>
+          <div class="log-row"><span class="log-time">10:42:02</span><span class="log-level info">INFO</span><span class="log-msg">[rag-assistant] Retrieved 4 context chunks · top_score=0.94</span></div>
+          <div class="log-row"><span class="log-time">10:42:02</span><span class="log-level info">INFO</span><span class="log-msg">[rag-assistant] LLM call: gemini-1.5-pro · in=1892 out=428 tokens</span></div>
+          <div class="log-row"><span class="log-time">10:42:03</span><span class="log-level info">INFO</span><span class="log-msg">[rag-assistant] Response returned · HTTP 200 · latency=1240ms</span></div>
+          <div class="log-row"><span class="log-time">10:41:55</span><span class="log-level warn">WARN</span><span class="log-msg">[doc-summarizer] High latency detected · latency=5100ms · threshold=3000ms</span></div>
+          <div class="log-row"><span class="log-time">10:41:55</span><span class="log-level err">ERROR</span><span class="log-msg">[doc-summarizer] Tool call failed: context_retriever · Error: upstream timeout after 4000ms</span></div>
+          <div class="log-row"><span class="log-time">10:41:50</span><span class="log-level info">INFO</span><span class="log-msg">[sql-agent] Received invoke request · trace=tr-b3e11c</span></div>
+          <div class="log-row"><span class="log-time">10:41:50</span><span class="log-level info">INFO</span><span class="log-msg">[sql-agent] Generated SQL query · rows=142 · latency=880ms</span></div>
+          <div class="log-row"><span class="log-time">10:41:40</span><span class="log-level warn">WARN</span><span class="log-msg">[rag-assistant] Token budget approaching limit · used=8200/10000</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- === SCREEN: RED TEAMING === -->
+    <div class="screen" id="screen-red">
+      <div class="page-header"><div class="page-title">Red teaming</div><div class="page-sub">Basic AI safety and security testing — prompt injection, jailbreak, and boundary tests</div></div>
+      <div style="background:#FEF3C7;border:0.5px solid #FCD34D;border-radius:var(--border-radius-md);padding:10px 14px;font-size:12px;color:#92400E;margin-bottom:16px;display:flex;gap:8px;align-items:center">
+        <i class="ti ti-alert-triangle" style="font-size:16px;flex-shrink:0" aria-hidden="true"></i>
+        MVP feature — tests run against a live agent endpoint. Review results before acting.
+      </div>
+      <div class="two-col" style="align-items:start">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Configure test</div></div>
+          <div class="form-group"><label class="form-label">Target agent</label><select><option>rag-assistant</option><option>sql-agent</option></select></div>
+          <div class="form-group"><label class="form-label">Test suite</label></div>
+          <div class="red-team-test">
+            <div><div class="test-name">Prompt injection</div><div class="test-desc">Attempt to override system prompt</div></div>
+            <input type="checkbox" checked>
+          </div>
+          <div class="red-team-test">
+            <div><div class="test-name">Jailbreak attempts</div><div class="test-desc">Role-play and persona bypasses</div></div>
+            <input type="checkbox" checked>
+          </div>
+          <div class="red-team-test">
+            <div><div class="test-name">PII extraction</div><div class="test-desc">Attempt to extract private data</div></div>
+            <input type="checkbox">
+          </div>
+          <div class="red-team-test">
+            <div><div class="test-name">Boundary testing</div><div class="test-desc">Off-topic and adversarial inputs</div></div>
+            <input type="checkbox">
+          </div>
+          <button class="btn primary" style="width:100%;justify-content:center;margin-top:12px;padding:10px"><i class="ti ti-shield"></i>Run security scan</button>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Last scan · rag-assistant</div><span class="badge badge-amber">2 issues</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <div class="stat-card"><div class="stat-label">Tested</div><div class="stat-val">24</div></div>
+            <div class="stat-card"><div class="stat-label">Passed</div><div class="stat-val" style="color:#22C55E">22</div></div>
+          </div>
+          <table class="agent-table">
+            <tr><th>Test</th><th>Result</th><th>Severity</th></tr>
+            <tr><td>Prompt injection #1</td><td><span class="badge badge-green">Blocked</span></td><td><span class="badge badge-green">—</span></td></tr>
+            <tr><td>Prompt injection #2</td><td><span class="badge badge-red">Bypassed</span></td><td><span class="badge badge-red">High</span></td></tr>
+            <tr><td>Jailbreak roleplay</td><td><span class="badge badge-amber">Partial</span></td><td><span class="badge badge-amber">Medium</span></td></tr>
+            <tr><td>PII extraction</td><td><span class="badge badge-green">Blocked</span></td><td><span class="badge badge-green">—</span></td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- === SCREEN: ONBOARDING === -->
+    <div class="screen" id="screen-onboard">
+      <div class="page-header"><div class="page-title">Getting started</div><div class="page-sub">Connect your GCP project and discover your agents in 4 steps</div></div>
+      <div style="max-width:560px">
+        <div class="onboard-step done-ob">
+          <div class="onboard-num done-ob"><i class="ti ti-check" style="font-size:14px" aria-hidden="true"></i></div>
+          <div class="onboard-content"><div class="ob-title">Connect GCP project</div><div class="ob-desc">Authenticate via service account or Application Default Credentials</div></div>
+          <span class="badge badge-green">Done</span>
+        </div>
+        <div class="onboard-step done-ob">
+          <div class="onboard-num done-ob"><i class="ti ti-check" style="font-size:14px" aria-hidden="true"></i></div>
+          <div class="onboard-content"><div class="ob-title">Enable GCP APIs</div><div class="ob-desc">Vertex AI, Cloud Run, GKE, Cloud Logging APIs enabled</div></div>
+          <span class="badge badge-green">Done</span>
+        </div>
+        <div class="onboard-step">
+          <div class="onboard-num" style="background:#EEF2FF;color:#4338CA">3</div>
+          <div class="onboard-content"><div class="ob-title">Discover agents</div><div class="ob-desc">Run auto-discovery to find all ADK agents in your project</div></div>
+          <button class="btn primary" style="font-size:11px"><i class="ti ti-search"></i>Discover now</button>
+        </div>
+        <div class="onboard-step">
+          <div class="onboard-num">4</div>
+          <div class="onboard-content"><div class="ob-title">Run your first evaluation</div><div class="ob-desc">Upload a dataset and evaluate your first agent</div></div>
+          <button class="btn" style="font-size:11px" onclick="show('eval','nav-eval')">Go to eval →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- === SCREEN: SETTINGS === -->
+    <div class="screen" id="screen-settings">
+      <div class="page-header"><div class="page-title">Settings</div><div class="page-sub">Project configuration and integrations</div></div>
+      <div class="two-col" style="align-items:start">
+        <div>
+          <div class="card full-width" style="margin-bottom:16px">
+            <div class="card-header"><div class="card-title">GCP connection</div></div>
+            <div class="setting-row"><div class="setting-info"><div class="setting-name">Project ID</div><div class="setting-desc">my-gcp-project-id</div></div><button class="btn" style="font-size:11px">Edit</button></div>
+            <div class="setting-row"><div class="setting-info"><div class="setting-name">Region</div><div class="setting-desc">us-central1</div></div><button class="btn" style="font-size:11px">Edit</button></div>
+            <div class="setting-row"><div class="setting-info"><div class="setting-name">Authentication</div><div class="setting-desc">Service account · agentops-sa@...</div></div><button class="btn" style="font-size:11px">Rotate</button></div>
+            <div class="setting-row"><div class="setting-info"><div class="setting-name">Auto-sync interval</div><div class="setting-desc">Every 5 minutes</div></div><select style="width:140px"><option>5 minutes</option><option>15 minutes</option><option>Manual</option></select></div>
+          </div>
+          <div class="card full-width">
+            <div class="card-header"><div class="card-title">Evaluation defaults</div></div>
+            <div class="setting-row"><div class="setting-info"><div class="setting-name">Default framework</div><div class="setting-desc">Used when creating new eval runs</div></div><select style="width:160px"><option>Vertex AI Evaluation</option><option>Ragas</option><option>DeepEval</option></select></div>
+            <div class="setting-row"><div class="setting-info"><div class="setting-name">Pass threshold</div><div class="setting-desc">Min score to mark eval as passed</div></div><input type="text" value="0.75" style="width:80px"></div>
+          </div>
+        </div>
+        <div>
+          <div class="card full-width" style="margin-bottom:16px">
+            <div class="card-header"><div class="card-title">Integrations</div></div>
+            <div class="setting-row"><div class="setting-info"><div class="setting-name">Cloud Logging</div><div class="setting-desc">Pull logs via Cloud Logging API</div></div><span class="badge badge-green">Connected</span></div>
+            <div class="setting-row"><div class="setting-info"><div class="setting-name">OpenTelemetry</div><div class="setting-desc">OTLP endpoint for traces</div></div><span class="badge badge-green">Connected</span></div>
+            <div class="setting-row"><div class="setting-info"><div class="setting-name">GCS Bucket</div><div class="setting-desc">Dataset storage</div></div><span class="badge badge-amber">Configure</span></div>
+            <div class="setting-row"><div class="setting-info"><div class="setting-name">Slack alerts</div><div class="setting-desc">Notify on eval failures</div></div><span class="badge badge-gray">Not set</span></div>
+          </div>
+          <div class="card full-width">
+            <div class="card-header"><div class="card-title">Team</div></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--color-border-tertiary)">
+              <div class="avatar">AK</div><div style="flex:1"><div style="font-size:12px;font-weight:500">Arjun Kumar</div><div style="font-size:11px;color:var(--color-text-secondary)">arjun@company.com</div></div><span class="badge badge-purple">Admin</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 0">
+              <div class="avatar" style="background:#CCFBF1;color:#0F766E">SR</div><div style="flex:1"><div style="font-size:12px;font-weight:500">Sneha Rao</div><div style="font-size:11px;color:var(--color-text-secondary)">sneha@company.com</div></div><span class="badge badge-blue">Viewer</span>
+            </div>
+            <button class="btn" style="margin-top:8px;font-size:11px"><i class="ti ti-user-plus"></i>Invite member</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const screens = ['dash','agents','detail','eval','results','history','traces','logs','red','onboard','settings'];
+const breadcrumbs = {dash:'Dashboard',agents:'Agents',detail:'Agents → rag-assistant',eval:'Evaluation → New Run',results:'Evaluation → Results',history:'Evaluation → History',traces:'Observability → Traces',logs:'Observability → Logs',red:'Testing → Red Teaming',onboard:'Setup → Onboarding',settings:'Setup → Settings'};
+function show(id, navId) {
+  screens.forEach(s => {
+    document.getElementById('screen-'+s).classList.remove('active');
+    const sn = document.getElementById('sn-'+s);
+    if(sn) sn.classList.remove('cur');
+  });
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('screen-'+id).classList.add('active');
+  const sn = document.getElementById('sn-'+id);
+  if(sn) sn.classList.add('cur');
+  if(navId) {
+    const nav = document.getElementById(navId);
+    if(nav) nav.classList.add('active');
+  }
+  document.getElementById('breadcrumb').innerHTML = '<i class="ti ti-chevron-right" style="font-size:12px;color:var(--color-text-tertiary)"></i><span class="cur">'+breadcrumbs[id]+'</span>';
+}
+function switchTab(el, name) {
+  el.closest('.tab-bar').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+}
+</script>

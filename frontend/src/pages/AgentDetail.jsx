@@ -1,0 +1,341 @@
+import React, { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Activity, FlaskConical, Loader2 } from 'lucide-react'
+import StatCard from '../components/StatCard'
+import { Card, CardHeader } from '../components/Card'
+import Badge from '../components/Badge'
+import AgentIcon from '../components/AgentIcon'
+import Btn from '../components/Btn'
+import TabBar from '../components/TabBar'
+import KVRow from '../components/KVRow'
+import MiniBar from '../components/MiniBar'
+import TraceRow from '../components/TraceRow'
+import EmptyState from '../components/EmptyState'
+import { logs, traceDetail, traces } from '../data/mockData'
+import { useAgents } from '../context/AgentsContext'
+import * as agentsApi from '../api/agents'
+import {
+  formatEvalDate,
+  passRateFromAggregates,
+  runStatusLabel,
+  runStatusVariant,
+  shortId,
+} from '../lib/evaluationMapper'
+
+export default function AgentDetail() {
+  const { id } = useParams()
+  const nav = useNavigate()
+  const { getAgent, agents } = useAgents()
+  const [agent, setAgent] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
+  const [activeTab, setActiveTab] = useState(0)
+  const [evalRuns, setEvalRuns] = useState([])
+  const [evalsLoading, setEvalsLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      setLoadError(null)
+      try {
+        const cached = agents.find((a) => a.id === id)
+        const data = cached || (await getAgent(id))
+        if (!cancelled) setAgent(data)
+      } catch (err) {
+        if (!cancelled) setLoadError(err.message || 'Failed to load agent')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [id, agents, getAgent])
+
+  useEffect(() => {
+    if (!id || activeTab !== 2) return
+    let cancelled = false
+    ;(async () => {
+      setEvalsLoading(true)
+      try {
+        const data = await agentsApi.fetchAgentEvaluations(id, { limit: 50 })
+        if (!cancelled) setEvalRuns(data.items || [])
+      } catch {
+        if (!cancelled) setEvalRuns([])
+      } finally {
+        if (!cancelled) setEvalsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [id, activeTab])
+  const agentLogs = useMemo(
+    () => (agent ? logs.filter((log) => log.msg.includes(`[${agent.name}]`) || log.msg.includes(agent.slug)) : []),
+    [agent]
+  )
+  const agentTraces = useMemo(
+    () => (agent ? traces.filter((trace) => trace.agent === agent.name || trace.agent === agent.slug) : []),
+    [agent]
+  )
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24 text-gray-500 gap-2">
+        <Loader2 size={22} className="animate-spin" />
+        Loading agent…
+      </div>
+    )
+  }
+
+  if (loadError || !agent) {
+    return (
+      <div>
+        <EmptyState message={loadError || 'Agent not found'} />
+        <div className="text-center mt-4">
+          <Btn onClick={() => nav('/agents')}>Back to agents</Btn>
+        </div>
+      </div>
+    )
+  }
+
+  const renderOverview = () => (
+    <>
+      <div className="grid grid-cols-2 gap-4 mb-3">
+        <Card>
+          <CardHeader title="Deployment info" />
+          <KVRow label="Endpoint" value={agent.endpoint} />
+          <KVRow label="Model" value={agent.model} />
+          <KVRow label="Framework" value={agent.framework} />
+          <KVRow label="Region" value={agent.region} />
+          <KVRow label="Project" value={agent.project} />
+          <KVRow label="Source" value={agent.source} />
+          <KVRow label="Tools" value={agent.tools} isLast />
+        </Card>
+
+        <Card>
+          <CardHeader title="Performance (24h)" />
+          <div className="grid grid-cols-3 gap-4 mb-3">
+            <div className="rounded-lg bg-gray-50 p-3">
+              <div className="text-[11px] uppercase tracking-[0.04em] text-gray-500 mb-1">P50 latency</div>
+              <div className="text-[24px] font-semibold text-gray-900">{agent.stats.latencyP50}</div>
+              <div className="text-[11px] text-gray-500 mt-1">p95: {agent.stats.latencyP95}</div>
+            </div>
+            <div className="rounded-lg bg-gray-50 p-3">
+              <div className="text-[11px] uppercase tracking-[0.04em] text-gray-500 mb-1">Traces</div>
+              <div className="text-[24px] font-semibold text-gray-900">{agentTraces.length}</div>
+              <div className="text-[11px] text-gray-500 mt-1">Mock traces</div>
+            </div>
+            <div className="rounded-lg bg-gray-50 p-3">
+              <div className="text-[11px] uppercase tracking-[0.04em] text-gray-500 mb-1">Last seen</div>
+              <div className="text-[18px] font-semibold text-gray-900">{agent.lastActive}</div>
+              <div className="text-[11px] text-gray-500 mt-1">From discovery sync</div>
+            </div>
+          </div>
+          <div className="text-[12px] text-gray-500 mb-1">Token averages</div>
+          <div className="text-[12px] text-gray-400">Observability metrics coming soon</div>
+        </Card>
+      </div>
+
+      {agent.toolUsage.length > 0 && (
+        <div className="grid grid-cols-1 mb-3">
+          <Card>
+            <CardHeader title="Tool usage (7d)" />
+            <div className="text-[12px]">
+              {agent.toolUsage.map((t, i) => (
+                <div key={i} style={{ marginTop: i > 0 ? 10 : 0 }}>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-gray-500">{t.name}</span>
+                    <span className="font-medium">{t.count.toLocaleString()}</span>
+                  </div>
+                  <MiniBar pct={t.pct} color={t.color} />
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+    </>
+  )
+
+  const renderTraces = () => (
+    <>
+      <div className="grid grid-cols-3 gap-4 mb-5">
+        <Card>
+          <CardHeader title="Trace summary" />
+          <div className="space-y-3 text-[13px] text-gray-700">
+            <div className="flex justify-between"><span>Agent</span><span>{agent.name}</span></div>
+            <div className="flex justify-between"><span>Active traces</span><span>{agentTraces.length}</span></div>
+            <div className="flex justify-between"><span>Status</span><span>{agent.status}</span></div>
+          </div>
+        </Card>
+
+        <Card className="col-span-2">
+          <CardHeader title="Trace timeline" />
+          {traceDetail.map((t, i) => (
+            <TraceRow key={i} {...t} isLast={i === traceDetail.length - 1} />
+          ))}
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader title="Recent traces">
+          <Btn style={{ fontSize: 11 }} onClick={() => nav('/traces')}>Full trace view</Btn>
+        </CardHeader>
+        <div className="grid gap-3">
+          {agentTraces.length ? (
+            agentTraces.map((trace) => (
+              <div
+                key={trace.id}
+                className="p-3 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-between"
+              >
+                <div>
+                  <div className="font-medium text-gray-900">{trace.id}</div>
+                  <div className="text-[12px] text-gray-500">
+                    Latency: {trace.latency} · Status: {trace.status}
+                  </div>
+                </div>
+                <div className="text-[12px] text-gray-500">{agent.name}</div>
+              </div>
+            ))
+          ) : (
+            <div className="text-gray-500">No trace data for this agent (API not yet available).</div>
+          )}
+        </div>
+      </Card>
+    </>
+  )
+
+  const evalStatusBadge = (run) => (
+    <Badge variant={runStatusVariant(run.status, run.aggregate_scores)}>
+      {runStatusLabel(run.status)}
+    </Badge>
+  )
+
+  const renderEvaluations = () => (
+    <Card>
+      <CardHeader title="Evaluation history">
+        <Btn
+          primary
+          style={{ fontSize: 11 }}
+          onClick={() => nav(`/evaluation?agentId=${id}`)}
+        >
+          + New Run
+        </Btn>
+      </CardHeader>
+      {evalsLoading ? (
+        <div className="flex items-center gap-2 text-[12px] text-gray-500 p-4">
+          <Loader2 size={14} className="animate-spin" />
+          Loading evaluations…
+        </div>
+      ) : evalRuns.length === 0 ? (
+        <EmptyState message="No evaluations for this agent yet. Run one from Evaluation." />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="text-left text-[11px] font-medium text-gray-500 px-3 py-2 uppercase tracking-[0.04em]" style={{ borderBottom: '0.5px solid #aaacad' }}>Run</th>
+                <th className="text-left text-[11px] font-medium text-gray-500 px-3 py-2 uppercase tracking-[0.04em]" style={{ borderBottom: '0.5px solid #aaacad' }}>Framework</th>
+                <th className="text-left text-[11px] font-medium text-gray-500 px-3 py-2 uppercase tracking-[0.04em]" style={{ borderBottom: '0.5px solid #aaacad' }}>Samples</th>
+                <th className="text-left text-[11px] font-medium text-gray-500 px-3 py-2 uppercase tracking-[0.04em]" style={{ borderBottom: '0.5px solid #aaacad' }}>Result</th>
+                <th className="text-left text-[11px] font-medium text-gray-500 px-3 py-2 uppercase tracking-[0.04em]" style={{ borderBottom: '0.5px solid #aaacad' }}>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {evalRuns.map((run, i) => {
+                const rate = passRateFromAggregates(run.aggregate_scores)
+                return (
+                <tr
+                  key={run.id}
+                  className="hover:bg-gray-50 cursor-pointer border-b border-gray-200"
+                  style={{ background: i % 2 === 1 ? '#F9FAFB' : 'transparent' }}
+                  onClick={() => nav(`/results/${run.id}`)}
+                >
+                  <td className="px-2 py-2 text-[12px] text-gray-900" style={{ fontFamily: 'var(--font-mono)' }}>{shortId(run.id)}</td>
+                  <td className="px-2 py-2 text-[12px] text-gray-900">{run.framework}</td>
+                  <td className="px-2 py-2 text-[12px] text-gray-900">
+                    {run.aggregate_scores?.total_samples ?? '—'}
+                    {rate != null ? ` · ${rate}% pass` : ''}
+                  </td>
+                  <td className="px-2 py-2">{evalStatusBadge(run)}</td>
+                  <td className="px-2 py-2 text-[12px] text-gray-500">{formatEvalDate(run.completed_at || run.created_at)}</td>
+                </tr>
+              )})}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  )
+
+  const renderLogs = () => (
+    <Card className="mb-5">
+      <CardHeader title="Logs" />
+      <div className="text-[12px] text-gray-500 mb-3">Cloud Logging integration coming soon</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+        {(agentLogs.length ? agentLogs : logs.slice(0, 5)).map((log, i, arr) => (
+          <div
+            key={i}
+            className="flex items-start gap-2.5 py-1.5"
+            style={{ borderBottom: i < arr.length - 1 ? '0.5px solid #E5E7EB' : 'none' }}
+          >
+            <span className="text-gray-400 whitespace-nowrap flex-shrink-0">{log.time}</span>
+            <span
+              className="w-11 text-center flex-shrink-0 font-medium"
+              style={{ color: log.level === 'ERROR' ? '#991B1B' : log.level === 'WARN' ? '#B45309' : '#1D4ED8' }}
+            >
+              {log.level}
+            </span>
+            <span className="text-gray-500 flex-1 leading-relaxed">{log.msg}</span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 1:
+        return renderTraces()
+      case 2:
+        return renderEvaluations()
+      case 3:
+        return renderLogs()
+      default:
+        return renderOverview()
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <AgentIcon color={agent.iconColor} size={36} iconSize={18} />
+          <div>
+            <div className="text-[20px] font-medium text-gray-900">{agent.name}</div>
+            <div className="text-[13px] text-gray-500">
+              {agent.platform} · {agent.region}
+            </div>
+          </div>
+          <Badge
+            variant={
+              agent.status === 'Healthy' ? 'green' : agent.status === 'Inactive' ? 'gray' : 'yellow'
+            }
+          >
+            {agent.status}
+          </Badge>
+        </div>
+        <div className="flex gap-2">
+          <Btn onClick={() => nav('/traces')}><Activity size={13} />View traces</Btn>
+          <Btn primary onClick={() => nav(`/evaluation?agentId=${id}`)}><FlaskConical size={13} />Run eval</Btn>
+        </div>
+      </div>
+
+      <TabBar tabs={['Overview', 'Traces', 'Evaluations', 'Logs']} onChange={setActiveTab} />
+
+      {renderContent()}
+    </div>
+  )
+}

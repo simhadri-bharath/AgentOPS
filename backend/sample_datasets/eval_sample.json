@@ -1,0 +1,17 @@
+[
+  {
+    "input": "Plan a 1 day beach trip in Goa",
+    "expected_output": "Goa",
+    "context": "travel planning"
+  },
+  {
+    "input": "Recommend budget restaurants in New Delhi",
+    "expected_output": "Delhi",
+    "context": "dining"
+  },
+  {
+    "input": "Historical tour itinerary for Paris",
+    "expected_output": "Paris",
+    "context": "travel"
+  }
+]
