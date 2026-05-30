@@ -213,7 +213,7 @@ curl http://127.0.0.1:8000/api/v1/discovery/vertex-ai/test
 ### Sample: Sync Reasoning Engines
 
 ```powershell
-curl -X POST http://127.0.0.1:8000/api/v1/discovery/vertex-ai/sync
+curl.exe -X POST http://127.0.0.1:8000/api/v1/discovery/vertex-ai/sync
 ```
 
 ```json
