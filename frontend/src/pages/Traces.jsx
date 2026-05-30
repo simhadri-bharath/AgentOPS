@@ -261,7 +261,7 @@ function KV({ label, value, mono }) {
 }
 
 /* ─── Main Traces Page ─────────────────────────────────────────────────────── */
-export default function Traces() {
+export default function Traces({ agentFilter } = {}) {
   const [traces, setTraces] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -277,7 +277,9 @@ export default function Traces() {
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchTraces({ hours, limit: 50 })
+      const params = { hours, limit: 50 }
+      if (agentFilter) params.agent = agentFilter
+      const data = await fetchTraces(params)
       setTraces(data.items || [])
       // Auto-select first trace
       if (data.items?.length > 0 && !selectedTraceId) {
@@ -288,7 +290,7 @@ export default function Traces() {
     } finally {
       setLoading(false)
     }
-  }, [hours])
+  }, [hours, agentFilter])
 
   useEffect(() => { loadTraces() }, [loadTraces])
 
@@ -326,12 +328,16 @@ export default function Traces() {
   const flatSpans = traceDetail ? flattenTree(traceDetail.span_tree) : []
   const activeTrace = traceDetail?.trace
 
+  const isEmbedded = !!agentFilter
+
   return (
     <div>
-      <PageHeader
-        title="Traces"
-        subtitle="Real-time execution traces from Google Cloud Trace — Vertex AI agents"
-      />
+      {!isEmbedded && (
+        <PageHeader
+          title="Traces"
+          subtitle="Real-time execution traces from Google Cloud Trace — Vertex AI agents"
+        />
+      )}
 
       {/* Controls */}
       <div className="flex items-center gap-3 mb-4">

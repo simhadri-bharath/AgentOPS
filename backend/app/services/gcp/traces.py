@@ -80,7 +80,7 @@ class CloudTraceService:
         # Build filter string for Cloud Trace
         filter_str = ""
         if agent_filter:
-            filter_str = f'span:gen_ai.agent.name:"{agent_filter}"'
+            filter_str = f'gen_ai.agent.name:"{agent_filter}"'
 
         request = trace_v1.ListTracesRequest(
             project_id=self._project_id,
@@ -92,16 +92,22 @@ class CloudTraceService:
         )
 
         traces_list: list[TraceRead] = []
-        count = 0
 
         try:
             pager = client.list_traces(request=request)
-            for trace in pager:
-                parsed = self._parse_trace(trace, include_spans=False)
-                if parsed:
-                    traces_list.append(parsed)
-                count += 1
-                if count >= page_size:
+            # Use .pages to iterate page-by-page, avoiding the auto-pager's
+            # tendency to fetch the next page even after we have enough results
+            # (which causes "Invalid page token" 400 errors).
+            done = False
+            for page in pager.pages:
+                for trace in page.traces:
+                    parsed = self._parse_trace(trace, include_spans=False)
+                    if parsed:
+                        traces_list.append(parsed)
+                    if len(traces_list) >= page_size:
+                        done = True
+                        break
+                if done:
                     break
         except Exception as exc:
             # If we already have some results, log the error but return them
