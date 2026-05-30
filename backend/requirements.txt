@@ -17,4 +17,5 @@ pandas>=2.2.0,<3.0.0
 # Google Cloud / Vertex AI
 google-cloud-aiplatform[evaluation]>=1.74.0,<2.0.0
 google-cloud-logging>=3.11.0,<4.0.0
+google-cloud-trace>=1.19.0,<2.0.0
 google-auth>=2.36.0,<3.0.0
