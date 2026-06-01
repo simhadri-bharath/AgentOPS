@@ -1,6 +1,7 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AgentsProvider } from './context/AgentsContext'
+import { TracesProvider } from './context/TracesContext'
 import AppLayout from './layouts/AppLayout'
 import Dashboard from './pages/Dashboard'
 import Agents from './pages/Agents'
@@ -18,6 +19,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AgentsProvider>
+      <TracesProvider>
       <Routes>
         <Route path="/" element={<AppLayout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
@@ -35,6 +37,7 @@ export default function App() {
           <Route path="onboarding" element={<Onboarding />} />
         </Route>
       </Routes>
+      </TracesProvider>
       </AgentsProvider>
     </BrowserRouter>
   )

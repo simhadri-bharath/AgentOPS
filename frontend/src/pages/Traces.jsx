@@ -3,7 +3,7 @@ import { Card, CardHeader } from '../components/Card'
 import Badge from '../components/Badge'
 import PageHeader from '../components/PageHeader'
 import TraceGraph from '../components/TraceGraph'
-import { fetchTraces, fetchTraceDetail } from '../api/traces'
+import { useTraces } from '../context/TracesContext'
 
 /* ─── helpers ──────────────────────────────────────────────────────────────── */
 function formatDuration(ms) {
@@ -262,24 +262,33 @@ function KV({ label, value, mono }) {
 
 /* ─── Main Traces Page ─────────────────────────────────────────────────────── */
 export default function Traces({ agentFilter } = {}) {
-  const [traces, setTraces] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { getTraceList, getTraceDetail, getCachedTraceList, getCachedTraceDetail } = useTraces()
+
+  const initialTraces = getCachedTraceList({ hours: 24, agent: agentFilter })
+  const [traces, setTraces] = useState(initialTraces || [])
+  const [loading, setLoading] = useState(!initialTraces)
   const [error, setError] = useState(null)
   const [hours, setHours] = useState(24)
-  const [selectedTraceId, setSelectedTraceId] = useState(null)
-  const [traceDetail, setTraceDetail] = useState(null)
-  const [detailLoading, setDetailLoading] = useState(false)
+  const [selectedTraceId, setSelectedTraceId] = useState(() => {
+    return initialTraces?.length > 0 ? initialTraces[0].trace_id : null
+  })
+  const [traceDetail, setTraceDetail] = useState(() => {
+    return initialTraces?.length > 0 ? getCachedTraceDetail(initialTraces[0].trace_id) : null
+  })
+  const [detailLoading, setDetailLoading] = useState(() => {
+    return initialTraces?.length > 0 && !getCachedTraceDetail(initialTraces[0].trace_id)
+  })
   const [selectedSpan, setSelectedSpan] = useState(null)
   const [viewMode, setViewMode] = useState('graph') // 'graph' | 'timeline'
 
   // Load trace list
-  const loadTraces = useCallback(async () => {
+  const loadTraces = useCallback(async (opts = {}) => {
     setLoading(true)
     setError(null)
     try {
       const params = { hours, limit: 50 }
       if (agentFilter) params.agent = agentFilter
-      const data = await fetchTraces(params)
+      const data = await getTraceList(params, opts)
       setTraces(data.items || [])
       // Auto-select first trace
       if (data.items?.length > 0 && !selectedTraceId) {
@@ -290,7 +299,7 @@ export default function Traces({ agentFilter } = {}) {
     } finally {
       setLoading(false)
     }
-  }, [hours, agentFilter])
+  }, [hours, agentFilter, getTraceList])
 
   useEffect(() => { loadTraces() }, [loadTraces])
 
@@ -303,9 +312,9 @@ export default function Traces({ agentFilter } = {}) {
     let cancelled = false
     setDetailLoading(true)
     setSelectedSpan(null)
-    fetchTraceDetail(selectedTraceId)
-      .then((data) => {
-        if (!cancelled) setTraceDetail(data)
+    getTraceDetail(selectedTraceId)
+      .then(({ detail }) => {
+        if (!cancelled) setTraceDetail(detail)
       })
       .catch((err) => {
         if (!cancelled) setTraceDetail(null)
@@ -313,7 +322,7 @@ export default function Traces({ agentFilter } = {}) {
       })
       .finally(() => { if (!cancelled) setDetailLoading(false) })
     return () => { cancelled = true }
-  }, [selectedTraceId])
+  }, [selectedTraceId, getTraceDetail])
 
   // Flatten span tree for waterfall display
   const flattenTree = (nodes, depth = 0) => {
@@ -353,7 +362,7 @@ export default function Traces({ agentFilter } = {}) {
           <option value={168}>Last 7 days</option>
         </select>
         <button
-          onClick={loadTraces}
+          onClick={() => loadTraces({ force: true })}
           className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors"
           style={{
             background: '#4F46E5',

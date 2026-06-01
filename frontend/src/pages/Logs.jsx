@@ -4,95 +4,28 @@ import { Card, CardHeader } from '../components/Card'
 import Btn from '../components/Btn'
 import PageHeader from '../components/PageHeader'
 import { useAgents } from '../context/AgentsContext'
-import { fetchTraces, fetchTraceDetail } from '../api/traces'
+import { useTraces } from '../context/TracesContext'
 
 const levelColor = { INFO: '#1D4ED8', WARN: '#B45309', ERROR: '#991B1B' }
 
 export default function Logs() {
   const { agents } = useAgents()
-  const [logsList, setLogsList] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { getCompiledGlobalLogs, getCachedCompiledGlobalLogs } = useTraces()
+
+  const [timeWindow, setTimeWindow] = useState('168') // default to 7d (168h)
+  const initialLogs = getCachedCompiledGlobalLogs(timeWindow)
+  const [logsList, setLogsList] = useState(initialLogs || [])
+  const [loading, setLoading] = useState(!initialLogs)
   const [logSearch, setLogSearch] = useState('')
   const [selectedAgent, setSelectedAgent] = useState('all')
   const [selectedLevel, setSelectedLevel] = useState('all')
-  const [timeWindow, setTimeWindow] = useState('168') // default to 7d (168h)
 
-  const fetchAllLogs = useCallback(() => {
+
+  const fetchAllLogs = useCallback((opts = {}) => {
     setLoading(true)
-    fetchTraces({ limit: 40, hours: parseInt(timeWindow) })
-      .then(async (res) => {
-        const items = res.items || []
-        
-        // Fetch details for each trace to extract child spans
-        const detailsPromises = items.map((t) =>
-          fetchTraceDetail(t.trace_id)
-            .then((detail) => ({ trace: t, detail }))
-            .catch(() => ({ trace: t, detail: null }))
-        )
-        
-        const results = await Promise.all(detailsPromises)
-        const allLogLines = []
-
-        results.forEach(({ trace, detail }) => {
-          if (!detail) {
-            // Fallback high level logs if detail failed
-            const date = new Date(trace.start_time)
-            const timeStr = date.toTimeString().split(' ')[0]
-            allLogLines.push({
-              time: timeStr,
-              timestamp: date,
-              agentName: trace.agent_name || 'unknown',
-              level: trace.status === 'ERROR' ? 'ERROR' : 'INFO',
-              msg: `[${trace.agent_name || 'unknown'}] Executed trace run · duration=${(trace.duration_ms / 1000).toFixed(2)}s · trace_id=${trace.trace_id}`
-            })
-            return
-          }
-          
-          const spans = detail.spans || (detail.trace && detail.trace.spans) || []
-          const sortedSpans = [...spans].sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-          
-          sortedSpans.forEach((span) => {
-            const date = new Date(span.start_time)
-            const timeStr = date.toTimeString().split(' ')[0]
-            
-            let msg = ''
-            if (span.name === 'invocation' && !span.parent_span_id) {
-              msg = `[${trace.agent_name || 'unknown'}] Received invoke request · session_id=${span.session_id || 'N/A'}`
-            } else if (span.input_tokens || span.output_tokens) {
-              msg = `[${span.name}] LLM generation call: ${span.model_name || 'gemini'} · in=${span.input_tokens || 0} out=${span.output_tokens || 0} tokens`
-            } else {
-              const opName = span.operation || span.name
-              msg = `[${span.name}] Executed operation "${opName}" · duration=${span.duration_ms.toFixed(1)}ms`
-            }
-            
-            allLogLines.push({
-              time: timeStr,
-              timestamp: date,
-              agentName: trace.agent_name || 'unknown',
-              level: span.status === 'ERROR' ? 'ERROR' : 'INFO',
-              msg
-            })
-          })
-          
-          // Summary completion log
-          if (spans.length > 0) {
-            const root = spans.find((s) => !s.parent_span_id)
-            const totalDuration = root ? root.duration_ms : trace.duration_ms
-            const date = root ? new Date(root.end_time) : new Date(trace.end_time)
-            const timeStr = date.toTimeString().split(' ')[0]
-            allLogLines.push({
-              time: timeStr,
-              timestamp: date,
-              agentName: trace.agent_name || 'unknown',
-              level: root && root.status === 'ERROR' ? 'ERROR' : 'INFO',
-              msg: `[${trace.agent_name || 'unknown'}] Response returned · HTTP 200 · total_duration=${totalDuration.toFixed(1)}ms`
-            })
-          }
-        })
-        
-        // Sort all logs globally by timestamp descending (newest at top)
-        allLogLines.sort((a, b) => b.timestamp - a.timestamp)
-        setLogsList(allLogLines)
+    getCompiledGlobalLogs(timeWindow, opts.force)
+      .then(({ logs }) => {
+        setLogsList(logs)
       })
       .catch((err) => {
         console.error('Failed to fetch global logs:', err)
@@ -100,7 +33,7 @@ export default function Logs() {
       .finally(() => {
         setLoading(false)
       })
-  }, [timeWindow])
+  }, [timeWindow, getCompiledGlobalLogs])
 
   useEffect(() => {
     fetchAllLogs()
@@ -169,7 +102,7 @@ export default function Logs() {
             <option value="24">Last 24h</option>
             <option value="168">Last 7d</option>
           </select>
-          <Btn onClick={fetchAllLogs} disabled={loading}>
+          <Btn onClick={() => fetchAllLogs({ force: true })} disabled={loading}>
             {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
             Refresh
           </Btn>
