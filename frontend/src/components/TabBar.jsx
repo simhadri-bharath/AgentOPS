@@ -8,7 +8,7 @@ export default function TabBar({ tabs, defaultTab = 0, activeTab, onChange }) {
     onChange && onChange(i)
   }
   return (
-    <div className="flex" style={{ borderBottom: '0.5px solid #E5E7EB', marginBottom: 16 }}>
+    <div className="flex" style={{ borderBottom: '0.5px solid #E5E7EB', marginBottom: 14 }}>
       {tabs.map((tab, i) => (
         <button
           key={i}

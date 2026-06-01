@@ -20,6 +20,7 @@ export function shortId(uuid) {
 
 export function runStatusLabel(status) {
   const s = (status || '').toLowerCase()
+  if (s === 'draft') return 'Draft'
   if (s === 'completed') return 'Completed'
   if (s === 'running') return 'Running'
   if (s === 'queued') return 'Queued'
@@ -29,6 +30,7 @@ export function runStatusLabel(status) {
 
 export function runStatusVariant(status, aggregates = {}) {
   const s = (status || '').toLowerCase()
+  if (s === 'draft') return 'gray'
   if (s === 'failed') return 'red'
   if (s === 'running' || s === 'queued') return 'amber'
   const total = aggregates.total_samples || 0

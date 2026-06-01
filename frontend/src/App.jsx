@@ -7,6 +7,8 @@ import Dashboard from './pages/Dashboard'
 import Agents from './pages/Agents'
 import AgentDetail from './pages/AgentDetail'
 import Evaluation from './pages/Evaluation'
+import JobsPage from './pages/JobsPage'
+import JobDetailsPage from './pages/JobDetailsPage'
 import Results from './pages/Results'
 import History from './pages/History'
 import Traces from './pages/Traces'
@@ -27,6 +29,8 @@ export default function App() {
           <Route path="agents" element={<Agents />} />
           <Route path="agents/:id" element={<AgentDetail />} />
           <Route path="evaluation" element={<Evaluation />} />
+          <Route path="jobs" element={<JobsPage />} />
+          <Route path="jobs/:jobId" element={<JobDetailsPage />} />
           <Route path="results" element={<Navigate to="/history" replace />} />
           <Route path="results/:evaluationId" element={<Results />} />
           <Route path="history" element={<History />} />

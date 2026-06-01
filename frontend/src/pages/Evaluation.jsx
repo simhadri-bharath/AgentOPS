@@ -1,298 +1,277 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Upload, Play, Loader2 } from 'lucide-react'
-import { Card, CardHeader } from '../components/Card'
-import TabBar from '../components/TabBar'
-import MetricToggle from '../components/MetricToggle'
+import { Briefcase, Check, ChevronRight, Loader2 } from 'lucide-react'
 import Btn from '../components/Btn'
 import PageHeader from '../components/PageHeader'
+import AgentStep from '../components/evaluation/AgentStep'
+import DatasetStep from '../components/evaluation/DatasetStep'
+import FrameworkStep from '../components/evaluation/FrameworkStep'
+import MetricsStep from '../components/evaluation/MetricsStep'
 import { useAgents } from '../context/AgentsContext'
-import * as datasetsApi from '../api/datasets'
 import * as evaluationsApi from '../api/evaluations'
+import { FRAMEWORK_METRICS } from '../lib/evaluationConstants'
 
-const DATASET_TABS = ['Upload file', 'Past datasets']
+const STEPS = [
+  { id: 1, title: 'Select Agent' },
+  { id: 2, title: 'Select Dataset' },
+  { id: 3, title: 'Select Framework' },
+  { id: 4, title: 'Select Metrics' },
+]
+
+const STEP_META = {
+  1: {
+    title: 'Choose agent to evaluate',
+    subtitle: 'Select one deployed agent from your registry.',
+  },
+  2: {
+    title: 'Choose evaluation dataset',
+    subtitle: 'Upload a CSV/JSON file or pick an existing dataset.',
+  },
+  3: {
+    title: 'Choose evaluation framework',
+    subtitle: 'Pick the scoring framework for this job.',
+  },
+  4: {
+    title: 'Choose metrics',
+    subtitle: 'Toggle metrics and review the summary before creating the job.',
+  },
+}
 
 export default function Evaluation() {
   const nav = useNavigate()
   const [searchParams] = useSearchParams()
   const { agents, loading: agentsLoading } = useAgents()
 
-  const [selectedAgentId, setSelectedAgentId] = useState(searchParams.get('agentId') || '')
-  const [datasetTab, setDatasetTab] = useState(0)
-  const [datasets, setDatasets] = useState([])
-  const [datasetsLoading, setDatasetsLoading] = useState(false)
-  const [selectedDatasetId, setSelectedDatasetId] = useState('')
-  const [uploadFile, setUploadFile] = useState(null)
-  const [uploadName, setUploadName] = useState('')
-  const [metricsOn, setMetricsOn] = useState(() =>
-    Object.fromEntries(
-      evaluationsApi.SUPPORTED_METRICS.map((m) => [m.id, m.defaultOn])
-    )
-  )
-  const [launching, setLaunching] = useState(false)
+  const [step, setStep] = useState(1)
+  const [selectedAgent, setSelectedAgent] = useState(null)
+  const [selectedDataset, setSelectedDataset] = useState(null)
+  const [selectedFramework, setSelectedFramework] = useState(null)
+  const [metricsOn, setMetricsOn] = useState({})
+  const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
-  const fileInputRef = useRef(null)
 
   useEffect(() => {
-    const fromUrl = searchParams.get('agentId')
-    if (fromUrl) setSelectedAgentId(fromUrl)
-  }, [searchParams])
-
-  const loadDatasets = useCallback(async () => {
-    setDatasetsLoading(true)
-    try {
-      const data = await datasetsApi.fetchDatasets({ limit: 100 })
-      setDatasets(data.items || [])
-    } catch (err) {
-      setError(err.message || 'Failed to load datasets')
-    } finally {
-      setDatasetsLoading(false)
+    const agentId = searchParams.get('agentId')
+    if (agentId && agents.length) {
+      const match = agents.find((a) => a.id === agentId)
+      if (match) setSelectedAgent(match)
     }
-  }, [])
+  }, [searchParams, agents])
 
   useEffect(() => {
-    if (datasetTab === 1) loadDatasets()
-  }, [datasetTab, loadDatasets])
+    if (!selectedFramework) return
+    const defaults = FRAMEWORK_METRICS[selectedFramework.id] || []
+    setMetricsOn(Object.fromEntries(defaults.map((m) => [m, true])))
+  }, [selectedFramework])
+
+  const selectedMetrics = useMemo(
+    () => Object.entries(metricsOn).filter(([, on]) => on).map(([id]) => id),
+    [metricsOn]
+  )
+
+  const meta = STEP_META[step]
+
+  const canGoNext = () => {
+    if (step === 1) return !!selectedAgent
+    if (step === 2) return !!selectedDataset
+    if (step === 3) return !!selectedFramework
+    if (step === 4) return selectedMetrics.length > 0
+    return false
+  }
+
+  const handleNext = () => {
+    if (step < 4 && canGoNext()) setStep(step + 1)
+  }
+
+  const handleBack = () => {
+    if (step > 1) setStep(step - 1)
+  }
+
+  const handleStepClick = (targetStep) => {
+    if (targetStep < step) setStep(targetStep)
+  }
 
   const toggleMetric = (id, on) => {
     setMetricsOn((prev) => ({ ...prev, [id]: on }))
   }
 
-  const selectedMetrics = Object.entries(metricsOn)
-    .filter(([, on]) => on)
-    .map(([id]) => id)
-
-  const resolveDatasetId = async () => {
-    if (datasetTab === 1) {
-      if (!selectedDatasetId) throw new Error('Select a dataset from the list')
-      return selectedDatasetId
-    }
-    if (!uploadFile) throw new Error('Choose a CSV or JSON file to upload')
-    const res = await datasetsApi.uploadDataset(uploadFile, {
-      name: uploadName || uploadFile.name,
-    })
-    return res.dataset.id
-  }
-
-  const handleLaunch = async () => {
+  const handleCreateJob = async () => {
     setError(null)
-    if (!selectedAgentId) {
-      setError('Select an agent')
+    if (!selectedAgent || !selectedDataset || !selectedFramework) {
+      setError('Complete all steps before creating a job.')
       return
     }
     if (selectedMetrics.length === 0) {
-      setError('Select at least one metric')
+      setError('Select at least one metric.')
       return
     }
 
-    setLaunching(true)
+    setCreating(true)
     try {
-      const datasetId = await resolveDatasetId()
-      const queued = await evaluationsApi.startEvaluation({
-        agent_id: selectedAgentId,
-        dataset_id: datasetId,
-        framework: 'vertex_ai',
+      const job = await evaluationsApi.createEvaluationJob({
+        agent_id: selectedAgent.id,
+        dataset_id: selectedDataset.id,
+        framework: selectedFramework.id,
         metrics: selectedMetrics,
       })
-      nav(`/results/${queued.evaluation_id}`)
+      nav(`/jobs/${job.id}`)
     } catch (err) {
-      setError(err.message || 'Failed to start evaluation')
+      setError(err.message || 'Failed to create evaluation job')
     } finally {
-      setLaunching(false)
+      setCreating(false)
+    }
+  }
+
+  const renderStep = () => {
+    switch (step) {
+      case 1:
+        return (
+          <AgentStep
+            agents={agents}
+            loading={agentsLoading}
+            selectedAgent={selectedAgent}
+            onSelect={setSelectedAgent}
+          />
+        )
+      case 2:
+        return (
+          <DatasetStep
+            selectedDataset={selectedDataset}
+            onSelect={setSelectedDataset}
+          />
+        )
+      case 3:
+        return (
+          <FrameworkStep
+            selectedFramework={selectedFramework}
+            onSelect={setSelectedFramework}
+          />
+        )
+      case 4:
+        return (
+          <MetricsStep
+            selectedFramework={selectedFramework}
+            metricsOn={metricsOn}
+            onToggleMetric={toggleMetric}
+            selectedAgent={selectedAgent}
+            selectedDataset={selectedDataset}
+          />
+        )
+      default:
+        return null
     }
   }
 
   return (
     <div>
       <PageHeader
-        title="Run evaluation"
-        subtitle="Upload a dataset and run Vertex AI Reasoning Engine evals against a deployed agent"
-      />
+        title="New Evaluation"
+        subtitle="Configure an evaluation job — save as draft and run when ready"
+      >
+        <Btn onClick={() => nav('/jobs')}>
+          <Briefcase size={13} />
+          Jobs
+        </Btn>
+      </PageHeader>
 
       {error && (
-        <div
-          className="mb-4 px-3 py-2 rounded-md text-[12px]"
-          style={{ background: '#FEF2F2', color: '#991B1B', border: '0.5px solid #FECACA' }}
-        >
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">
           {error}
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 items-start">
-        <div>
-          <Card className="mb-4">
-            <CardHeader title="1 · Select agent" />
-            <div className="mb-3">
-              <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-[0.04em] mb-1 mt-2">
-                Agent
-              </label>
-              <select
-                style={{ width: '100%' }}
-                value={selectedAgentId}
-                onChange={(e) => setSelectedAgentId(e.target.value)}
-                disabled={agentsLoading || agents.length === 0}
+      <div
+        className="overflow-hidden rounded-xl border border-gray-200 bg-white"
+        style={{ borderWidth: '0.5px' }}
+      >
+        {/* Top stepper */}
+        <div className="grid grid-cols-4 border-b border-gray-200">
+          {STEPS.map((s) => {
+            const active = step === s.id
+            const completed = step > s.id
+            const clickable = completed
+
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => clickable && handleStepClick(s.id)}
+                disabled={!clickable}
+                className={`relative flex flex-col items-center justify-center gap-2 py-3 transition-colors ${
+                  active
+                    ? 'bg-indigo-50'
+                    : completed
+                      ? 'bg-white hover:bg-gray-50 cursor-pointer'
+                      : 'bg-white cursor-default'
+                }`}
               >
-                <option value="">
-                  {agentsLoading
-                    ? 'Loading agents…'
-                    : agents.length === 0
-                      ? 'No agents — run discovery first'
-                      : 'Select an agent'}
-                </option>
-                {agents.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} ({a.platform})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </Card>
-
-          <Card className="mb-4">
-            <CardHeader title="2 · Dataset / prompts" />
-            <TabBar tabs={DATASET_TABS} activeTab={datasetTab} onChange={setDatasetTab} />
-
-            {datasetTab === 0 && (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,.json"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0]
-                    setUploadFile(f || null)
-                    if (f && !uploadName) setUploadName(f.name)
-                  }}
-                />
                 <div
-                  className="upload-zone cursor-pointer"
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault()
-                    const f = e.dataTransfer.files?.[0]
-                    if (f) {
-                      setUploadFile(f)
-                      if (!uploadName) setUploadName(f.name)
-                    }
-                  }}
+                  className={`flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-semibold ${
+                    active
+                      ? 'bg-indigo-600 text-white'
+                      : completed
+                        ? 'bg-green-500 text-white'
+                        : 'border border-gray-300 bg-white text-gray-400'
+                  }`}
                 >
-                  <Upload size={28} className="mx-auto mb-2 text-gray-400" />
-                  {uploadFile ? (
-                    <span className="text-[12px] text-gray-900">{uploadFile.name}</span>
-                  ) : (
-                    <>Drop a CSV or JSON file here</>
-                  )}
-                  <span className="block text-[11px] mt-1" style={{ color: '#9CA3AF' }}>
-                    Columns: input (required), expected_output, context (optional)
-                  </span>
-                  <Btn
-                    style={{ marginTop: 10, fontSize: 11 }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      fileInputRef.current?.click()
-                    }}
-                  >
-                    Browse files
-                  </Btn>
+                  {completed ? <Check size={10} /> : s.id}
                 </div>
-                <div className="mt-2">
-                  <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-[0.04em] mb-1">
-                    Dataset name (optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={uploadName}
-                    onChange={(e) => setUploadName(e.target.value)}
-                    placeholder="e.g. travel-planner-prompts"
-                    style={{ width: '100%' }}
-                  />
-                </div>
-              </>
-            )}
-
-            {datasetTab === 1 && (
-              <div>
-                {datasetsLoading ? (
-                  <div className="flex items-center gap-2 text-[12px] text-gray-500 py-4">
-                    <Loader2 size={14} className="animate-spin" />
-                    Loading datasets…
-                  </div>
-                ) : datasets.length === 0 ? (
-                  <p className="text-[12px] text-gray-500 py-2">
-                    No datasets yet. Upload a file on the first tab.
-                  </p>
-                ) : (
-                  <select
-                    style={{ width: '100%' }}
-                    value={selectedDatasetId}
-                    onChange={(e) => setSelectedDatasetId(e.target.value)}
-                  >
-                    <option value="">Select a dataset</option>
-                    {datasets.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name} ({d.row_count} rows · {d.format})
-                      </option>
-                    ))}
-                  </select>
+                <span
+                  className={`text-[13px] font-medium ${
+                    active
+                      ? 'text-indigo-700'
+                      : completed
+                        ? 'text-green-700'
+                        : 'text-gray-400'
+                  }`}
+                >
+                  {s.title}
+                </span>
+                {active && (
+                  <div className="absolute bottom-0 left-0 h-0.5 w-full bg-indigo-600" />
                 )}
-                <Btn style={{ marginTop: 8, fontSize: 11 }} onClick={loadDatasets}>
-                  Refresh list
-                </Btn>
-              </div>
-            )}
-          </Card>
+              </button>
+            )
+          })}
         </div>
 
-        <div>
-          <Card className="mb-4">
-            <CardHeader title="3 · Metrics" />
-            {evaluationsApi.SUPPORTED_METRICS.map((m, i) => (
-              <MetricToggle
-                key={m.id}
-                label={m.label}
-                checked={metricsOn[m.id]}
-                onChange={(on) => toggleMetric(m.id, on)}
-                isLast={i === evaluationsApi.SUPPORTED_METRICS.length - 1}
-              />
-            ))}
-            <p className="text-[11px] text-gray-500 mt-2">
-              Prompt-only datasets (no expected_output) automatically use response_nonempty,
-              response_length, and latency_ms.
-            </p>
-          </Card>
+        {/* Step content */}
+        <div className="p-3 ">
+          <div className="mb-2 border-b border-gray-100 pb-1">
+            <h2 className="text-[15px] font-medium text-gray-900">{meta.title}</h2>
+            <p className="mt-1 text-[12px] text-gray-500">{meta.subtitle}</p>
+          </div>
 
-          <Card className="mb-4">
-            <CardHeader title="4 · Framework" />
-            <div className="mb-3">
-              <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-[0.04em] mb-1 mt-2">
-                Evaluation engine
-              </label>
-              <select style={{ width: '100%' }} value="vertex_ai" disabled>
-                <option value="vertex_ai">Vertex AI (Reasoning Engine)</option>
-              </select>
-            </div>
-          </Card>
+          {renderStep()}
+        </div>
 
-          <Btn
-            primary
-            disabled={launching}
-            onClick={handleLaunch}
-            style={{ width: '100%', justifyContent: 'center', padding: '10px' }}
-          >
-            {launching ? (
-              <>
-                <Loader2 size={13} className="animate-spin" />
-                Starting…
-              </>
-            ) : (
-              <>
-                <Play size={13} />
-                Launch evaluation
-              </>
-            )}
+        {/* Footer navigation */}
+        <div className="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-6 py-3">
+          <Btn disabled={step === 1} onClick={handleBack}>
+            Back
           </Btn>
+
+          <div className="flex items-center gap-2 text-[12px] text-gray-500">
+            Step {step} of {STEPS.length}
+          </div>
+
+          {step < 4 ? (
+            <Btn primary disabled={!canGoNext()} onClick={handleNext}>
+              Next
+              <ChevronRight size={14} />
+            </Btn>
+          ) : (
+            <Btn primary disabled={creating || !canGoNext()} onClick={handleCreateJob}>
+              {creating ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  Creating…
+                </>
+              ) : (
+                'Create Evaluation Job'
+              )}
+            </Btn>
+          )}
         </div>
       </div>
     </div>

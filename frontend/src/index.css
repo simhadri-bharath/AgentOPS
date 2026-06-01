@@ -26,10 +26,18 @@
   box-sizing: border-box;
 }
 
+html, body, #root {
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+}
+
 body {
+  margin: 0;
   font-family: var(--font-sans);
   background: var(--color-background-tertiary);
   min-height: 100vh;
+  overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
