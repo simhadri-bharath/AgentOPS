@@ -13,7 +13,7 @@ export function Card({ children, className = '', style = {} }) {
 
 export function CardHeader({ title, children }) {
   return (
-    <div className="flex items-center justify-between mb-3.5">
+    <div className="flex items-center justify-between mb-2">
       <span className="text-[13px] font-medium text-gray-900">{title}</span>
       {children && <div className="flex items-center gap-2">{children}</div>}
     </div>

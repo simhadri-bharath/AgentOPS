@@ -23,18 +23,47 @@ class EvaluationRepository:
         dataset_id: uuid.UUID,
         framework: str,
         metrics: list[str],
+        status: str = "queued",
+        name: str | None = None,
     ) -> EvaluationRun:
+        if not name:
+            name = await self._generate_job_name()
         run = EvaluationRun(
             agent_id=agent_id,
             dataset_id=dataset_id,
             framework=framework,
-            status="queued",
+            status=status,
             metrics=metrics,
+            name=name,
         )
         self._session.add(run)
         await self._session.flush()
         await self._session.refresh(run)
         return run
+
+    async def create_draft(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        dataset_id: uuid.UUID,
+        framework: str,
+        metrics: list[str],
+        name: str | None = None,
+    ) -> EvaluationRun:
+        return await self.create_run(
+            agent_id=agent_id,
+            dataset_id=dataset_id,
+            framework=framework,
+            metrics=metrics,
+            status="draft",
+            name=name,
+        )
+
+    async def _generate_job_name(self) -> str:
+        total = int(
+            (await self._session.execute(select(func.count()).select_from(EvaluationRun))).scalar_one()
+        )
+        return f"Eval-{total + 1:03d}"
 
     async def get_run(self, run_id: uuid.UUID) -> EvaluationRun | None:
         result = await self._session.execute(
@@ -46,6 +75,7 @@ class EvaluationRepository:
         self,
         *,
         agent_id: uuid.UUID | None = None,
+        status: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[EvaluationRun], int]:
@@ -54,10 +84,32 @@ class EvaluationRepository:
         if agent_id:
             query = query.where(EvaluationRun.agent_id == agent_id)
             count_q = count_q.where(EvaluationRun.agent_id == agent_id)
+        if status:
+            query = query.where(EvaluationRun.status == status)
+            count_q = count_q.where(EvaluationRun.status == status)
         query = query.order_by(EvaluationRun.created_at.desc()).limit(limit).offset(offset)
         items = list((await self._session.execute(query)).scalars().all())
         total = int((await self._session.execute(count_q)).scalar_one())
         return items, total
+
+    async def update_draft(
+        self,
+        run: EvaluationRun,
+        *,
+        agent_id: uuid.UUID,
+        dataset_id: uuid.UUID,
+        framework: str,
+        metrics: list[str],
+    ) -> EvaluationRun:
+        if run.status != "draft":
+            raise ValueError("Only draft jobs can be updated")
+        run.agent_id = agent_id
+        run.dataset_id = dataset_id
+        run.framework = framework
+        run.metrics = metrics
+        await self._session.flush()
+        await self._session.refresh(run)
+        return run
 
     async def update_run_status(
         self,

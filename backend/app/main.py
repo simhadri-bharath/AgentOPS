@@ -13,8 +13,9 @@ from sqlalchemy import text
 from app.api.v1.api import api_router
 from app.api.v1.routes import health as health_routes
 from app.core.config import get_settings
-from app.core.database import close_db, get_engine
+from app.core.database import close_db, get_engine, get_session_factory
 from app.core.logging import get_logger, setup_logging
+from app.services.discovery.vertex_ai import VertexAIDiscoveryService
 from app.services.gcp.auth import validate_adc_credentials
 from app.services.gcp.eval_deps import check_evals_dependencies
 
@@ -51,6 +52,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             auth.project_id,
             extra={"component": "startup"},
         )
+        try:
+            factory = get_session_factory()
+            async with factory() as session:
+                summary = await VertexAIDiscoveryService(session).sync_to_database()
+                await session.commit()
+            logger.info(
+                "Vertex AI discovery sync on startup: discovered=%s created=%s updated=%s unchanged=%s",
+                summary.discovered,
+                summary.created,
+                summary.updated,
+                summary.unchanged,
+                extra={"component": "startup"},
+            )
+            if summary.errors:
+                logger.warning(
+                    "Vertex AI discovery sync errors: %s",
+                    summary.errors,
+                    extra={"component": "startup"},
+                )
+        except Exception as exc:
+            logger.warning(
+                "Vertex AI discovery sync failed at startup: %s",
+                exc,
+                extra={"component": "startup"},
+            )
     else:
         logger.warning(
             "GCP ADC not available at startup: %s",

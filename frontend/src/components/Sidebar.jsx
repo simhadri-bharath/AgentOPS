@@ -1,9 +1,8 @@
 import React from 'react'
-import { NavLink } from 'react-router-dom'
-import { useAgents } from '../context/AgentsContext'
+import { NavLink, useNavigate } from 'react-router-dom'
 import {
   Brain, Building2, ChevronDown, LayoutDashboard, Bot, FlaskConical,
-  BarChart2, History, Activity, Terminal, ShieldAlert, Rocket, Settings, Ellipsis
+  BarChart2, History, Briefcase, Activity, Terminal, ShieldAlert, Rocket, Settings, Ellipsis
 } from 'lucide-react'
 
 const NavSection = ({ label }) => (
@@ -34,13 +33,17 @@ function NavItem({ to, icon: Icon, label, badge }) {
   )
 }
 
-export default function Sidebar() {
-  const { agents, discoveryTest } = useAgents()
-  const projectLabel =
-    discoveryTest?.project_id ||
-    (agents[0]?.project !== '—' ? agents[0]?.project : null) ||
-    'GCP project'
+const projects = [
+  "my-gcp-project",
+  "vertex-ai-platform",
+  "agentops-prod",
+  "rag-evaluation-system",
+  "genai-monitoring",
+  "ml-evaluation-suite",
+  "production-agents"
+];
 
+export default function Sidebar() {
   return (
     <div
       className="w-[220px] flex-shrink-0 flex flex-col"
@@ -51,25 +54,25 @@ export default function Sidebar() {
       }}
     >
       {/* Logo */}
-      <div className="flex items-center gap-2.5 px-4 py-[18px] pb-3.5" style={{ borderBottom: '0.5px solid #E5E7EB' }}>
+      <div className="flex items-center  gap-2.5 px-4 py-3 " style={{ borderBottom: '0.5px solid #E5E7EB' }}>
         <div className="w-7 h-7 bg-indigo-600 rounded-md flex items-center justify-center flex-shrink-0">
           <Brain size={15} color="#fff" />
         </div>
         <div>
-          <div className="text-[14px] font-medium text-gray-900">AgentOps</div>
-          <div className="text-[11px] text-gray-400 mt-px">GCP Platform</div>
+          <div className="text-[14px] font-medium bold text-gray-900">AgentOps</div>
+          
         </div>
       </div>
 
       {/* Workspace selector */}
+
+      
       <div
-        className="mx-3 my-2.5 px-2.5 py-2 border rounded-md flex items-center gap-2 cursor-pointer"
+        className="mx-2 my-2 px-2.5 py-1 border rounded-md flex items-center gap-2 cursor-pointer"
         style={{ borderColor: '#E5E7EB', background: 'var(--color-background-secondary)', borderWidth: '0.5px' }}
       >
         <Building2 size={14} className="text-gray-400" />
-        <span className="text-[12px] text-gray-600 flex-1 truncate" title={projectLabel}>
-          {projectLabel}
-        </span>
+        <span className="text-[12px] text-gray-600 flex-1">my-gcp-project</span>
         <ChevronDown size={14} className="text-gray-400" />
       </div>
 
@@ -77,16 +80,12 @@ export default function Sidebar() {
       <div className="flex-1 overflow-y-auto">
         <NavSection label="Platform" />
         <NavItem to="/dashboard" icon={LayoutDashboard} label="Dashboard" />
-        <NavItem
-          to="/agents"
-          icon={Bot}
-          label="Agents"
-          badge={agents.length > 0 ? String(agents.length) : undefined}
-        />
+        <NavItem to="/agents" icon={Bot} label="Agents" badge="8" />
 
         <NavSection label="Evaluation" />
-        <NavItem to="/evaluation" icon={FlaskConical} label="Run Evaluation" />
-        <NavItem to="/results" icon={BarChart2} label="Results" />
+        <NavItem to="/evaluation" icon={FlaskConical} label="New Evaluation" />
+       
+        
         <NavItem to="/history" icon={History} label="History" />
 
         <NavSection label="Observability" />
@@ -102,13 +101,13 @@ export default function Sidebar() {
       </div>
 
       {/* Footer */}
-      <div style={{ borderTop: '0.5px solid #E5E7EB', padding: '12px' }}>
-        <div className="flex items-center gap-2 px-1 py-1.5 cursor-pointer rounded-md hover:bg-gray-50">
-          <div className="w-7 h-7 rounded-full bg-indigo-50 flex items-center justify-center text-[11px] font-medium text-indigo-700 flex-shrink-0">
-            AK
+      <div style={{ borderTop: '0.5px solid #E5E7EB', padding: '10px' }}>
+        <div className="flex items-center gap-2 px-1 py-1 cursor-pointer rounded-md hover:bg-gray-50">
+          <div className="w-7 h-6 rounded-full bg-indigo-50 flex items-center justify-center text-[11px] font-medium text-indigo-700 flex-shrink-0">
+            JY
           </div>
           <div className="flex-1">
-            <div className="text-[12px] font-medium text-gray-900">Arjun Kumar</div>
+            <div className="text-[12px] font-medium text-gray-900">Jyoti</div>
             <div className="text-[11px] text-gray-400">Admin</div>
           </div>
           <Ellipsis size={14} className="text-gray-400" />
