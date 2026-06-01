@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.100.14",
     "dagre": "^0.8.5",
     "lucide-react": "^0.383.0",
     "react": "^18.3.1",

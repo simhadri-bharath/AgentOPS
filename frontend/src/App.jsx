@@ -10,7 +10,11 @@ import Results from './pages/Results'
 import History from './pages/History'
 import Traces from './pages/Traces'
 import Logs from './pages/Logs'
-import RedTeaming from './pages/RedTeaming'
+import RedTeamDashboard from './pages/redteam/RedTeamDashboard'
+import AttackLibrary from './pages/redteam/AttackLibrary'
+import RedTeamScan from './pages/redteam/RedTeamScan'
+import RedTeamRunResults from './pages/redteam/RedTeamRunResults'
+import VulnerabilityDetail from './pages/redteam/VulnerabilityDetail'
 import Settings from './pages/Settings'
 import Onboarding from './pages/Onboarding'
 
@@ -30,7 +34,14 @@ export default function App() {
           <Route path="history" element={<History />} />
           <Route path="traces" element={<Traces />} />
           <Route path="logs" element={<Logs />} />
-          <Route path="red-team" element={<RedTeaming />} />
+          <Route path="red-team" element={<RedTeamDashboard />} />
+          <Route path="red-team/library" element={<AttackLibrary />} />
+          <Route path="red-team/scan" element={<RedTeamScan />} />
+          <Route path="red-team/runs/:runId" element={<RedTeamRunResults />} />
+          <Route
+            path="red-team/runs/:runId/vulnerabilities/:resultId"
+            element={<VulnerabilityDetail />}
+          />
           <Route path="settings" element={<Settings />} />
           <Route path="onboarding" element={<Onboarding />} />
         </Route>
