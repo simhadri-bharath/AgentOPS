@@ -66,3 +66,56 @@ export function formatLatencyMs(ms) {
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`
   return `${ms}ms`
 }
+
+const SCORE_META_KEYS = new Set(['invocation_error', 'actual_output_nonempty'])
+
+/** Split evaluation_results.scores JSON into displayable metrics and explanations. */
+export function partitionSampleScores(scores = {}) {
+  const metrics = []
+  const explanations = {}
+  for (const [key, value] of Object.entries(scores || {})) {
+    if (key.endsWith('_explanation')) {
+      explanations[key.replace(/_explanation$/, '')] = value
+      continue
+    }
+    if (SCORE_META_KEYS.has(key)) continue
+    metrics.push({ key, value })
+  }
+  metrics.sort((a, b) => a.key.localeCompare(b.key))
+  return {
+    metrics,
+    explanations,
+    invocationError: scores.invocation_error,
+    outputNonempty: scores.actual_output_nonempty,
+  }
+}
+
+/** Human-readable value for a single metric entry in scores JSON. */
+export function formatMetricScore(key, value) {
+  if (value == null) return '—'
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (key === 'response_length' && typeof value === 'number') {
+    return `${value} chars`
+  }
+  if (key === 'latency_ms' && typeof value === 'number') {
+    return formatLatencyMs(value)
+  }
+  if (typeof value === 'number') {
+    if (value === 0 || value === 1) {
+      return value === 1 ? 'Pass (1.0)' : 'Fail (0.0)'
+    }
+    if (value >= 0 && value <= 1) {
+      return `${(value * 100).toFixed(1)}%`
+    }
+    return String(value)
+  }
+  return String(value)
+}
+
+/** 0–1 score for metric progress bars; null if not applicable. */
+export function metricScoreRatio(key, value) {
+  if (value == null || typeof value !== 'number') return null
+  if (key === 'response_length' || key === 'latency_ms') return null
+  if (value >= 0 && value <= 1) return value
+  return null
+}

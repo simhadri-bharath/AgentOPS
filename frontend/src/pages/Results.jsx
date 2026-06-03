@@ -257,7 +257,11 @@ export default function Results() {
               {filteredItems.map((row) => {
                 const passed = samplePassed(row.scores)
                 return (
-                  <TRow key={row.id} highlight={!passed}>
+                  <TRow
+                    key={row.id}
+                    highlight={!passed}
+                    onClick={() => nav(`/results/${evaluationId}/samples/${row.id}`)}
+                  >
                     <Td style={{ color: '#9CA3AF' }}>{row.sample_index + 1}</Td>
                     <Td
                       style={{

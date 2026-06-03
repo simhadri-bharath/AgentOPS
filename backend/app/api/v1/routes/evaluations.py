@@ -15,6 +15,7 @@ from app.schemas.evaluation import (
     FRAMEWORKS,
     EvaluationJobCreate,
     EvaluationJobUpdate,
+    EvaluationResultRead,
     EvaluationResultsResponse,
     EvaluationRunCreate,
     EvaluationRunListResponse,
@@ -362,3 +363,23 @@ async def get_evaluation_results(
         items=[evaluation_result_from_orm(r) for r in items],
         total=total,
     )
+
+
+@router.get(
+    "/{evaluation_id}/results/{result_id}",
+    response_model=EvaluationResultRead,
+)
+async def get_evaluation_result(
+    evaluation_id: uuid.UUID = Path(...),
+    result_id: uuid.UUID = Path(...),
+    session: AsyncSession = Depends(get_session),
+) -> EvaluationResultRead:
+    repo = EvaluationRepository(session)
+    run = await repo.get_run(evaluation_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=_evaluation_not_found_detail(evaluation_id))
+
+    row = await repo.get_result(result_id)
+    if not row or row.evaluation_run_id != evaluation_id:
+        raise HTTPException(status_code=404, detail="Evaluation result not found")
+    return evaluation_result_from_orm(row)

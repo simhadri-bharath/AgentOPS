@@ -10,6 +10,7 @@ import Evaluation from './pages/Evaluation'
 import JobsPage from './pages/JobsPage'
 import JobDetailsPage from './pages/JobDetailsPage'
 import Results from './pages/Results'
+import EvaluationSampleDetail from './pages/EvaluationSampleDetail'
 import History from './pages/History'
 import Traces from './pages/Traces'
 import Logs from './pages/Logs'
@@ -37,6 +38,10 @@ export default function App() {
           <Route path="jobs/:jobId" element={<JobDetailsPage />} />
           <Route path="results" element={<Navigate to="/history" replace />} />
           <Route path="results/:evaluationId" element={<Results />} />
+          <Route
+            path="results/:evaluationId/samples/:resultId"
+            element={<EvaluationSampleDetail />}
+          />
           <Route path="history" element={<History />} />
           <Route path="traces" element={<Traces />} />
           <Route path="logs" element={<Logs />} />

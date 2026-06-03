@@ -42,6 +42,10 @@ export function fetchEvaluationResults(evaluationId, params = {}) {
   )
 }
 
+export function fetchEvaluationResult(evaluationId, resultId) {
+  return api.get(`/api/v1/evaluations/${evaluationId}/results/${resultId}`)
+}
+
 export function createEvaluationJob(body) {
   return api.post('/api/v1/evaluations/jobs', {
     agent_id: body.agent_id,

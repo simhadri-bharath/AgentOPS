@@ -160,6 +160,12 @@ class EvaluationRepository:
         await self._session.refresh(row)
         return row
 
+    async def get_result(self, result_id: uuid.UUID) -> EvaluationResult | None:
+        result = await self._session.execute(
+            select(EvaluationResult).where(EvaluationResult.id == result_id)
+        )
+        return result.scalar_one_or_none()
+
     async def list_results(
         self, run_id: uuid.UUID, *, limit: int = 500, offset: int = 0
     ) -> tuple[list[EvaluationResult], int]:

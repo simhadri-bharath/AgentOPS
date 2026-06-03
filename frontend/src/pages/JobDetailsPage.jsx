@@ -626,7 +626,10 @@ export default function JobDetailsPage() {
               </THead>
               <tbody>
                 {resultRows.map((row) => (
-                  <TRow key={row.id}>
+                  <TRow
+                    key={row.id}
+                    onClick={() => nav(`/results/${jobId}/samples/${row.id}`)}
+                  >
                     <Td>{row.sample_index + 1}</Td>
                     <Td style={{ maxWidth: 220 }} className="truncate">
                       {row.input}
