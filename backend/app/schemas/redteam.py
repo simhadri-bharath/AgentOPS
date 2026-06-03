@@ -25,9 +25,12 @@ SUPPORTED_CATEGORIES: list[str] = [
 ]
 
 DEFAULT_JUDGE_MODELS: list[str] = [
-    "gemini-1.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
 ]
 
 
@@ -37,7 +40,7 @@ class RedTeamRunCreate(ORMBase):
         default_factory=lambda: list(SUPPORTED_CATEGORIES),
         min_length=1,
     )
-    judge_model: str = "gemini-1.5-pro"
+    judge_model: str = "gemini-2.5-flash"
     use_llm_judge: bool = True
     include_custom_cases: bool = True
     selected_case_ids: list[str] | None = Field(
@@ -96,6 +99,7 @@ class RedTeamResultRead(ORMBase):
     created_at: datetime
     # Populated from metadata when present (semantic evaluation layer)
     confidence_score: float | None = None
+    severity_reason: str | None = None
     semantic_reasoning: str | None = None
     toxicity_score: float | None = None
     hallucination_score: float | None = None
@@ -187,6 +191,7 @@ def redteam_result_from_orm(row: Any) -> RedTeamResultRead:
         metadata=meta,
         created_at=row.created_at,
         confidence_score=meta.get("confidence_score", row.score),
+        severity_reason=meta.get("severity_reason"),
         semantic_reasoning=meta.get("semantic_reasoning"),
         toxicity_score=meta.get("toxicity_score"),
         hallucination_score=meta.get("hallucination_score"),

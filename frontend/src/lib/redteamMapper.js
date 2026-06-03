@@ -15,6 +15,7 @@ export function severityVariant(s) {
   if (v === 'critical') return 'red'
   if (v === 'high') return 'amber'
   if (v === 'low') return 'gray'
+  if (v === 'unknown') return 'gray'
   return 'blue'
 }
 

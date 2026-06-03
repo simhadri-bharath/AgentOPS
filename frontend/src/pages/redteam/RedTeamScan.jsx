@@ -8,7 +8,7 @@ import PageHeader from '../../components/PageHeader'
 import { useAgents } from '../../context/AgentsContext'
 import * as redteamApi from '../../api/redteam'
 
-const JUDGE_MODELS = ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
+const JUDGE_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash']
 
 export function caseKey(tc) {
   return tc.external_id || String(tc.id)
@@ -23,7 +23,7 @@ export default function RedTeamScan() {
   )
   const [expandedCats, setExpandedCats] = useState({})
   const [selectedCaseIds, setSelectedCaseIds] = useState(() => new Set())
-  const [judgeModel, setJudgeModel] = useState('gemini-1.5-pro')
+  const [judgeModel, setJudgeModel] = useState('gemini-2.5-flash')
   const [useLlmJudge, setUseLlmJudge] = useState(true)
 
   const { data: testCasesData, isLoading: casesLoading } = useQuery({

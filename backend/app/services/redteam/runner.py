@@ -95,10 +95,47 @@ class RedTeamRunner:
                 )
 
                 if invoke.error:
-                    classification = "UNCERTAIN"
-                    score = None
-                    reason = f"Invocation error: {invoke.error}"
-                    method = "invocation_error"
+                    # Distinguish real API failures from "agent returned empty"
+                    is_empty_response = (
+                        "no text" in (invoke.error or "").lower()
+                        or "empty" in (invoke.error or "").lower()
+                    )
+                    if is_empty_response:
+                        # Agent was reached but returned nothing — this is
+                        # likely the agent defending against the attack.
+                        # Send through the classifier with empty response.
+                        verdict = await classifier.classify_async(
+                            category=case.category,
+                            prompt=case.prompt,
+                            response="",
+                            expected_behavior=case.expected_behavior,
+                        )
+                        classification = verdict.classification
+                        score = verdict.confidence_score
+                        reason = verdict.reason
+                        method = verdict.method
+                    else:
+                        # Real invocation failure (network, auth, etc.)
+                        classification = "UNCERTAIN"
+                        score = None
+                        reason = f"Invocation error: {invoke.error}"
+                        method = "invocation_error"
+                        # Create a minimal verdict for the error path
+                        verdict = type("V", (), {
+                            "classification": classification,
+                            "confidence_score": score,
+                            "reason": reason,
+                            "method": method,
+                            "severity": "unknown",
+                            "severity_reason": "Cannot determine — agent invocation failed.",
+                            "semantic_reasoning": None,
+                            "toxicity_score": None,
+                            "hallucination_score": None,
+                            "safety_score": None,
+                            "tool_calling_score": None,
+                            "heuristic_flags": [],
+                            "details": None,
+                        })()
                 else:
                     verdict = await classifier.classify_async(
                         category=case.category,
@@ -110,6 +147,10 @@ class RedTeamRunner:
                     score = verdict.confidence_score
                     reason = verdict.reason
                     method = verdict.method
+
+                # Use LLM-generated severity instead of hardcoded case severity
+                llm_severity = getattr(verdict, "severity", case.severity)
+                llm_severity_reason = getattr(verdict, "severity_reason", "")
 
                 if classification == "PASS":
                     passed += 1
@@ -124,7 +165,7 @@ class RedTeamRunner:
                     run_id=run.id,
                     test_case_id=test_case_uuid,
                     category=case.category,
-                    severity=case.severity,
+                    severity=llm_severity,
                     prompt=case.prompt,
                     response=response_text or None,
                     classification=classification,
@@ -137,29 +178,16 @@ class RedTeamRunner:
                         "method": method,
                         "tags": case.tags,
                         "invocation_error": invoke.error,
-                        "confidence_score": verdict.confidence_score
-                        if invoke.error is None
-                        else None,
-                        "semantic_reasoning": verdict.semantic_reasoning
-                        if invoke.error is None
-                        else None,
-                        "toxicity_score": verdict.toxicity_score
-                        if invoke.error is None
-                        else None,
-                        "hallucination_score": verdict.hallucination_score
-                        if invoke.error is None
-                        else None,
-                        "safety_score": verdict.safety_score
-                        if invoke.error is None
-                        else None,
-                        "tool_calling_score": verdict.tool_calling_score
-                        if invoke.error is None
-                        else None,
-                        "heuristic_flags": verdict.heuristic_flags
-                        if invoke.error is None
-                        else [],
+                        "confidence_score": verdict.confidence_score,
+                        "severity_reason": llm_severity_reason,
+                        "semantic_reasoning": verdict.semantic_reasoning,
+                        "toxicity_score": verdict.toxicity_score,
+                        "hallucination_score": verdict.hallucination_score,
+                        "safety_score": verdict.safety_score,
+                        "tool_calling_score": verdict.tool_calling_score,
+                        "heuristic_flags": verdict.heuristic_flags or [],
                         "deepeval": (verdict.details or {}).get("deepeval")
-                        if invoke.error is None
+                        if verdict.details
                         else None,
                         "observability": {
                             "trace_id": trace_id,
@@ -174,30 +202,19 @@ class RedTeamRunner:
                     {
                         "id": str(row.id),
                         "category": case.category,
-                        "severity": case.severity,
+                        "severity": llm_severity,
                         "prompt": case.prompt,
                         "classification": classification,
                         "reason": reason,
                         "trace_id": trace_id,
                         "confidence_score": score,
-                        "semantic_reasoning": verdict.semantic_reasoning
-                        if invoke.error is None
-                        else None,
-                        "toxicity_score": verdict.toxicity_score
-                        if invoke.error is None
-                        else None,
-                        "hallucination_score": verdict.hallucination_score
-                        if invoke.error is None
-                        else None,
-                        "safety_score": verdict.safety_score
-                        if invoke.error is None
-                        else None,
-                        "tool_calling_score": verdict.tool_calling_score
-                        if invoke.error is None
-                        else None,
-                        "heuristic_flags": verdict.heuristic_flags
-                        if invoke.error is None
-                        else [],
+                        "severity_reason": llm_severity_reason,
+                        "semantic_reasoning": verdict.semantic_reasoning,
+                        "toxicity_score": verdict.toxicity_score,
+                        "hallucination_score": verdict.hallucination_score,
+                        "safety_score": verdict.safety_score,
+                        "tool_calling_score": verdict.tool_calling_score,
+                        "heuristic_flags": verdict.heuristic_flags or [],
                     }
                 )
 

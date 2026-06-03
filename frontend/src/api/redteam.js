@@ -56,7 +56,7 @@ export function startRedTeamRun(body) {
   const payload = {
     agent_id: body.agent_id,
     categories: body.categories,
-    judge_model: body.judge_model || 'gemini-1.5-pro',
+    judge_model: body.judge_model || 'gemini-2.5-flash',
     use_llm_judge: body.use_llm_judge !== false,
     include_custom_cases: body.include_custom_cases !== false,
   }
