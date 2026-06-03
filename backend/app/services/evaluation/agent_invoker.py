@@ -40,9 +40,9 @@ class AgentInvoker:
 
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
-        self._client: Any | None = None
+        self._clients: dict[str, Any] = {}
         self._project_id: str | None = None
-        self._region: str | None = None
+        self._default_region: str | None = None
 
     def initialize(self) -> None:
         ok, err = check_evals_dependencies()
@@ -51,26 +51,34 @@ class AgentInvoker:
 
         auth = require_adc()
         self._project_id = self._settings.gcp_project_id or auth.project_id
-        self._region = self._settings.gcp_region
+        self._default_region = self._settings.gcp_region or "us-central1"
         if not self._project_id:
             raise RuntimeError("GCP_PROJECT_ID is required for agent invocation")
 
-        import vertexai
-        from vertexai import Client
-
-        vertexai.init(project=self._project_id, location=self._region)
-        self._client = Client(project=self._project_id, location=self._region)
-        # Force-load evals so failures happen at init, not mid-batch
-        _ = self._client.evals
         logger.info(
             "AgentInvoker initialized",
             extra={"component": "agent_invoker", "project_id": self._project_id},
         )
 
-    def _ensure_client(self) -> Any:
-        if self._client is None:
+    def _extract_region(self, resource_name: str) -> str:
+        # Example: projects/936666675765/locations/us-west1/reasoningEngines/7998753578023911424
+        if "locations/" in resource_name:
+            parts = resource_name.split("locations/")
+            if len(parts) > 1:
+                return parts[1].split("/")[0]
+        return self._default_region or "us-central1"
+
+    def _ensure_client(self, region: str) -> Any:
+        if not self._project_id:
             self.initialize()
-        return self._client
+        if region not in self._clients:
+            import vertexai
+            from vertexai import Client
+
+            logger.info("Initializing Vertex AI Client for region: %s", region)
+            vertexai.init(project=self._project_id, location=region)
+            self._clients[region] = Client(project=self._project_id, location=region)
+        return self._clients[region]
 
     def invoke_agent(
         self,
@@ -97,7 +105,8 @@ class AgentInvoker:
         if not rows:
             return []
 
-        client = self._ensure_client()
+        region = self._extract_region(resource_name)
+        client = self._ensure_client(region)
         df = build_inference_dataframe(rows)
 
         last_error: str | None = None
@@ -105,10 +114,11 @@ class AgentInvoker:
             start = time.perf_counter()
             try:
                 logger.info(
-                    "run_inference starting for %s samples (attempt %s)",
+                    "run_inference starting for %s samples in region %s (attempt %s)",
                     len(rows),
+                    region,
                     attempt + 1,
-                    extra={"component": "agent_invoker"},
+                    extra={"component": "agent_invoker", "region": region},
                 )
                 inference_output = client.evals.run_inference(agent=resource_name, src=df)
                 total_ms = int((time.perf_counter() - start) * 1000)
@@ -191,9 +201,11 @@ class AgentInvoker:
         user_id: str,
     ) -> list[InvokeResult]:
         """Retry empty run_inference rows via direct stream_query."""
-        if not self._project_id or not self._region:
+        if not self._project_id:
             self.initialize()
-        assert self._project_id and self._region
+        assert self._project_id
+
+        region = self._extract_region(resource_name)
 
         out: list[InvokeResult] = []
         for i, (row, result) in enumerate(zip(rows, results)):
@@ -214,7 +226,7 @@ class AgentInvoker:
             start = time.perf_counter()
             text, events, err = stream_query_prompt(
                 project_id=self._project_id,
-                region=self._region,
+                region=region,
                 resource_name=resource_name,
                 prompt=prompt,
                 user_id=user_id,
