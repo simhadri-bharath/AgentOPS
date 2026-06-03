@@ -93,14 +93,14 @@ def compute_aggregates(
     aggregates["total_samples"] = len(all_scores)
 
     for name in metric_names:
-        if name == "response_length":
-            values = [s[name] for s in all_scores if name in s and isinstance(s[name], (int, float))]
-            aggregates[f"avg_{name}"] = sum(values) / len(values) if values else 0
-        elif name == "latency_ms":
-            values = [s[name] for s in all_scores if name in s and s[name] is not None]
-            aggregates[f"avg_{name}"] = sum(values) / len(values) if values else 0
-        elif name in ("exact_match", "contains_expected", "response_nonempty"):
-            values = [s[name] for s in all_scores if name in s and s[name] is not None]
-            aggregates[f"avg_{name}"] = sum(values) / len(values) if values else 0
+        values = []
+        for s in all_scores:
+            if name in s and s[name] is not None:
+                val = s[name]
+                if isinstance(val, bool):
+                    values.append(1.0 if val else 0.0)
+                elif isinstance(val, (int, float)):
+                    values.append(float(val))
+        aggregates[f"avg_{name}"] = sum(values) / len(values) if values else 0
 
     return aggregates

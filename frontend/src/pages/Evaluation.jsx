@@ -9,7 +9,7 @@ import FrameworkStep from '../components/evaluation/FrameworkStep'
 import MetricsStep from '../components/evaluation/MetricsStep'
 import { useAgents } from '../context/AgentsContext'
 import * as evaluationsApi from '../api/evaluations'
-import { FRAMEWORK_METRICS } from '../lib/evaluationConstants'
+import { FRAMEWORK_METRICS, DEFAULT_METRICS_STATE } from '../lib/evaluationConstants'
 
 const STEPS = [
   { id: 1, title: 'Select Agent' },
@@ -46,7 +46,7 @@ export default function Evaluation() {
   const [selectedAgent, setSelectedAgent] = useState(null)
   const [selectedDataset, setSelectedDataset] = useState(null)
   const [selectedFramework, setSelectedFramework] = useState(null)
-  const [metricsOn, setMetricsOn] = useState({})
+  const [metricsOn, setMetricsOn] = useState(DEFAULT_METRICS_STATE)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
 
@@ -58,16 +58,23 @@ export default function Evaluation() {
     }
   }, [searchParams, agents])
 
-  useEffect(() => {
-    if (!selectedFramework) return
-    const defaults = FRAMEWORK_METRICS[selectedFramework.id] || []
-    setMetricsOn(Object.fromEntries(defaults.map((m) => [m, true])))
-  }, [selectedFramework])
-
-  const selectedMetrics = useMemo(
-    () => Object.entries(metricsOn).filter(([, on]) => on).map(([id]) => id),
-    [metricsOn]
-  )
+  const selectedMetrics = useMemo(() => {
+    return Object.entries(metricsOn)
+      .filter(([id, on]) => {
+        if (!on) return false
+        if (id === 'include_multi_turn') return false
+        // Filter out multi-turn metrics if the control toggle is disabled
+        if (
+          id === 'agent_multi_turn_task_success' ||
+          id === 'agent_multi_turn_tool_use_quality' ||
+          id === 'agent_multi_turn_trajectory_quality'
+        ) {
+          return !!metricsOn['include_multi_turn']
+        }
+        return true
+      })
+      .map(([id]) => id)
+  }, [metricsOn])
 
   const meta = STEP_META[step]
 

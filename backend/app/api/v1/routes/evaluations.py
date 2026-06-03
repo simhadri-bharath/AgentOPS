@@ -23,6 +23,7 @@ from app.schemas.evaluation import (
     evaluation_result_from_orm,
     evaluation_run_from_orm,
     resolve_executable_metrics,
+    VERTEX_MANAGED_METRICS,
 )
 from app.services.datasets.parser import parse_dataset_file
 from app.tasks.evaluation_tasks import run_evaluation_background
@@ -55,6 +56,21 @@ def _validate_framework_metrics(framework: str, metrics: list[str]) -> None:
         )
 
 
+def _validate_reference_column(metrics: list[str], dataset_path: str) -> None:
+    if "final_response_match" in metrics:
+        try:
+            validated = parse_dataset_file(dataset_path)
+            if not any("reference" in r for r in validated.rows):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Dataset must contain a 'reference' column if 'final_response_match' is selected.",
+                )
+        except Exception as exc:
+            if isinstance(exc, HTTPException):
+                raise exc
+            raise HTTPException(status_code=400, detail=str(exc))
+
+
 async def _prepare_metrics_for_dataset(
     session: AsyncSession, dataset_id: uuid.UUID, framework: str, metrics: list[str]
 ) -> list[str]:
@@ -67,8 +83,10 @@ async def _prepare_metrics_for_dataset(
         validated = parse_dataset_file(dataset.file_path)
         has_expected = any((r.get("expected_output") or "").strip() for r in validated.rows)
         if not has_expected:
-            if set(executable) <= {"exact_match", "contains_expected"}:
-                executable = list(DEFAULT_PROMPT_ONLY_METRICS)
+            managed = [m for m in executable if m in VERTEX_MANAGED_METRICS]
+            local_only = [m for m in executable if m not in VERTEX_MANAGED_METRICS]
+            if set(local_only) <= {"exact_match", "contains_expected"}:
+                executable = managed + list(DEFAULT_PROMPT_ONLY_METRICS)
     except Exception:
         pass
     return executable
@@ -92,6 +110,8 @@ async def create_evaluation_job(
     dataset = await DatasetRepository(session).get(body.dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
+
+    _validate_reference_column(body.metrics, dataset.file_path)
 
     eval_repo = EvaluationRepository(session)
     run = await eval_repo.create_draft(
@@ -136,6 +156,8 @@ async def update_evaluation_job(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
+    _validate_reference_column(body.metrics, dataset.file_path)
+
     framework = body.framework if body.framework != "vertex_ai" else "vertex"
     run = await repo.update_draft(
         run,
@@ -166,6 +188,11 @@ async def run_evaluation_job(
             detail=f"Cannot run job with status '{run.status}'. Only draft jobs can be run.",
         )
 
+    dataset = await DatasetRepository(session).get(run.dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    _validate_reference_column(list(run.metrics or []), dataset.file_path)
+
     executable = await _prepare_metrics_for_dataset(
         session, run.dataset_id, run.framework, list(run.metrics or [])
     )
@@ -193,6 +220,11 @@ async def start_evaluation(
     agent = await AgentRepository(session).get_agent(body.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+
+    dataset = await DatasetRepository(session).get(body.dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    _validate_reference_column(body.metrics, dataset.file_path)
 
     executable = await _prepare_metrics_for_dataset(
         session, body.dataset_id, body.framework, list(body.metrics)

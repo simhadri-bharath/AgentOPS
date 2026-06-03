@@ -11,9 +11,9 @@ import { useAgents } from '../context/AgentsContext'
 import * as datasetsApi from '../api/datasets'
 import * as evaluationsApi from '../api/evaluations'
 import {
+  APPLICATION_METRICS,
   frameworkLabel,
   FRAMEWORKS,
-  FRAMEWORK_METRICS,
   metricLabel,
   normalizeFramework,
 } from '../lib/evaluationConstants'
@@ -66,8 +66,6 @@ export default function JobDetailsPage() {
     () => agents.find((a) => a.id === String(form.agent_id)),
     [agents, form.agent_id]
   )
-
-  const frameworkMetrics = FRAMEWORK_METRICS[form.framework] || []
 
   const load = useCallback(
     async ({ silent = false } = {}) => {
@@ -372,14 +370,9 @@ export default function JobDetailsPage() {
               <select
                 value={form.framework}
                 disabled={!isDraft}
-                onChange={(e) => {
-                  const fw = e.target.value
-                  setForm((prev) => ({
-                    ...prev,
-                    framework: fw,
-                    metrics: FRAMEWORK_METRICS[fw] || [],
-                  }))
-                }}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, framework: e.target.value }))
+                }
                 className="w-full disabled:cursor-not-allowed disabled:bg-gray-50"
               >
                 {FRAMEWORKS.map((fw) => (
@@ -394,28 +387,25 @@ export default function JobDetailsPage() {
               <label className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-gray-500">
                 Metrics
               </label>
-              {frameworkMetrics.length === 0 ? (
-                <p className="text-[13px] text-gray-500">Select a framework to see metrics.</p>
-              ) : (
-                <div className="space-y-2">
-                  {frameworkMetrics.map((metric) => (
-                    <label
-                      key={metric}
-                      className={`flex items-center gap-2 text-[13px] text-gray-700 ${
-                        !isDraft ? 'opacity-60' : ''
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={form.metrics.includes(metric)}
-                        disabled={!isDraft}
-                        onChange={() => toggleMetric(metric)}
-                      />
-                      {metricLabel(metric)}
-                    </label>
-                  ))}
-                </div>
-              )}
+              <div className="grid max-h-[168px] grid-cols-2 gap-x-3 gap-y-1 overflow-y-auto pr-1">
+                {APPLICATION_METRICS.map((metric) => (
+                  <label
+                    key={metric}
+                    className={`flex items-center gap-1.5 text-[11px] leading-tight text-gray-700 ${
+                      !isDraft ? 'cursor-default opacity-60' : 'cursor-pointer'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="shrink-0"
+                      checked={form.metrics.includes(metric)}
+                      disabled={!isDraft}
+                      onChange={() => toggleMetric(metric)}
+                    />
+                    <span className="truncate">{metricLabel(metric)}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
         </Card>

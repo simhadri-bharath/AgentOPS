@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 REQUIRED_COLUMNS = {"input"}
-OPTIONAL_COLUMNS = {"expected_output", "context"}
+OPTIONAL_COLUMNS = {"expected_output", "context", "reference","reference_trajectory"}
 ALLOWED_COLUMNS = REQUIRED_COLUMNS | OPTIONAL_COLUMNS
 
 
@@ -52,6 +52,22 @@ def validate_dataframe(df: pd.DataFrame, fmt: str) -> ValidatedDataset:
             ctx_col = normalized["context"]
             val = row[ctx_col]
             record["context"] = "" if pd.isna(val) else str(val).strip()
+        if "reference" in columns:
+            ref_col = normalized["reference"]
+            val = row[ref_col]
+            record["reference"] = "" if pd.isna(val) else str(val).strip()
         rows.append(record)
+        if "reference_trajectory" in columns:
+            rt_col = normalized["reference_trajectory"]
+            val = row[rt_col]
+            if pd.isna(val) or str(val).strip() == "":
+                record["reference_trajectory"] = None
+            else:
+                import json
+                raw_val = str(val).strip()
+                try:
+                    record["reference_trajectory"] = json.loads(raw_val)
+                except json.JSONDecodeError:
+                    record["reference_trajectory"] = raw_val
 
     return ValidatedDataset(rows=rows, row_count=len(rows), format=fmt)

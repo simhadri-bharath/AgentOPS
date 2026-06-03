@@ -26,29 +26,16 @@ _NON_RESPONSE_COLUMNS = frozenset(
 )
 
 
+# ✅ REPLACE WITH — no session_inputs, just prompt
 def build_inference_dataframe(rows: list[dict[str, str]]) -> pd.DataFrame:
-    """
-    Match vertexaireasoningengine.ipynb:
-    columns prompt + session_inputs, with input mapped to prompt.
-    """
-    from vertexai import types
-
-    session_inputs = types.evals.SessionInput(user_id="agentops_eval_user", state={})
     prompts: list[str] = []
-
     for row in rows:
         text = row.get("input", "").strip()
         context = row.get("context", "").strip() if row.get("context") else ""
         if context:
             text = f"Context:\n{context}\n\nUser:\n{text}"
         prompts.append(text)
-
-    return pd.DataFrame(
-        {
-            "prompt": prompts,
-            "session_inputs": [session_inputs] * len(prompts),
-        }
-    )
+    return pd.DataFrame({"prompt": prompts})
 
 
 def collect_text_from_events(events: list[Any]) -> str:
