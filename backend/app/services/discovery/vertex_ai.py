@@ -211,6 +211,7 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
             discovered=0, created=0, updated=0, unchanged=0
         )
         active_endpoints: set[str] = set()
+        scanned_regions: set[str] = set()
 
         try:
             engines = await self.list_reasoning_engines()
@@ -222,6 +223,7 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
         summary.discovered = len(engines)
 
         for engine, region in engines:
+            scanned_regions.add(region)
             try:
                 agent_data = self.parse_reasoning_engine(engine, region)
                 if agent_data.endpoint_url:
@@ -251,7 +253,9 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
                 )
                 summary.errors.append(str(exc))
 
-        stale = await self._repository.mark_stale_agents(active_endpoints, "vertex_ai")
+        stale = await self._repository.mark_stale_agents_in_regions(
+            active_endpoints, "vertex_ai", scanned_regions
+        )
         if stale:
             logger.info(
                 "Marked stale agents inactive",

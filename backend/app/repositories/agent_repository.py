@@ -158,3 +158,33 @@ class AgentRepository:
                     count += 1
         await self._session.flush()
         return count
+
+    async def mark_stale_agents_in_regions(
+        self,
+        active_endpoint_urls: set[str],
+        source: str,
+        scanned_regions: set[str],
+    ) -> int:
+        """Mark agents as inactive only if they're from regions that were scanned but not found.
+        
+        This prevents marking agents as stale just because a region wasn't included in this sync.
+        """
+        result = await self._session.execute(
+            select(Agent).where(Agent.source == source)
+        )
+        count = 0
+        for agent in result.scalars().all():
+            # Only mark as inactive if:
+            # 1. Agent has an endpoint_url
+            # 2. The endpoint_url is NOT in the active set
+            # 3. Agent's region WAS scanned (so absence means truly gone)
+            if (
+                agent.endpoint_url 
+                and agent.endpoint_url not in active_endpoint_urls
+                and agent.region in scanned_regions
+            ):
+                if agent.status != "inactive":
+                    agent.status = "inactive"
+                    count += 1
+        await self._session.flush()
+        return count
