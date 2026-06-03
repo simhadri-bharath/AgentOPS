@@ -56,12 +56,22 @@ export function startRedTeamRun(body) {
   const payload = {
     agent_id: body.agent_id,
     categories: body.categories,
-    judge_model: body.judge_model || 'gemini-1.5-pro',
+    judge_model: body.judge_model || 'gemini-2.5-pro',
     use_llm_judge: body.use_llm_judge !== false,
     include_custom_cases: body.include_custom_cases !== false,
+    scan_mode: body.scan_mode || 'custom',
   }
   if (body.selected_case_ids != null) {
     payload.selected_case_ids = body.selected_case_ids
+  }
+  if (body.attack_enhancements != null) {
+    payload.attack_enhancements = body.attack_enhancements
+  }
+  if (body.target_purpose != null) {
+    payload.target_purpose = body.target_purpose
+  }
+  if (body.target_system_prompt != null) {
+    payload.target_system_prompt = body.target_system_prompt
   }
   return api.post('/api/v1/redteam/runs', payload)
 }
@@ -69,3 +79,20 @@ export function startRedTeamRun(body) {
 export function fetchJudgeModels() {
   return api.get('/api/v1/redteam/meta/judge-models')
 }
+
+export function fetchAgentMetadata(agentId) {
+  return api.get(`/api/v1/agents/${agentId}/metadata`)
+}
+
+export function fetchVulnerabilities() {
+  return api.get('/api/v1/redteam/vulnerabilities')
+}
+
+export function fetchRunVulnerabilities(runId) {
+  return api.get(`/api/v1/redteam/runs/${runId}/vulnerabilities`)
+}
+
+export function fetchRunVulnerabilityDetail(runId, category) {
+  return api.get(`/api/v1/redteam/runs/${runId}/vulnerabilities/${category}`)
+}
+

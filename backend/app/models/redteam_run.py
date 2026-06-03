@@ -22,7 +22,7 @@ class RedTeamRun(Base):
     )
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued", index=True)
     categories: Mapped[list[str]] = mapped_column(JSONB, nullable=False, server_default="[]")
-    judge_model: Mapped[str] = mapped_column(String(128), nullable=False, default="gemini-1.5-pro")
+    judge_model: Mapped[str] = mapped_column(String(128), nullable=False, default="gemini-2.5-pro")
     total_tests: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     passed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     failed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")

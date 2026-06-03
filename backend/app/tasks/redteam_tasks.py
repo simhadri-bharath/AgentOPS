@@ -13,8 +13,23 @@ logger = get_logger(__name__)
 async def run_redteam_async(run_id: uuid.UUID) -> None:
     factory = get_session_factory()
     async with factory() as session:
-        runner = RedTeamRunner(session)
-        await runner.run(run_id)
+        repo = RedTeamRepository(session)
+        run = await repo.get_run(run_id)
+        if not run:
+            logger.error("Red team run not found: %s", run_id)
+            return
+
+        config = dict(run.config or {})
+        scan_mode = config.get("scan_mode", "custom")
+
+        if scan_mode == "deepeval":
+            from app.services.redteam.deepeval_redteamer_service import DeepEvalRedTeamerService
+            service = DeepEvalRedTeamerService(session, factory)
+            await service.run_scan(run_id)
+        else:
+            runner = RedTeamRunner(session)
+            await runner.run(run_id)
+
 
 
 async def run_redteam_background(run_id: str) -> None:

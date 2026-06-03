@@ -172,7 +172,7 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
                         create_time = None
 
         labels = dict(getattr(engine, "labels", {}) or {})
-        model_name = labels.get("model") or labels.get("model_name") or "gemini-1.5-pro"
+        model_name = labels.get("model") or labels.get("model_name") or "gemini-2.5-pro"
 
         metadata: dict[str, Any] = {
             "gcp_engine_id": engine_id,

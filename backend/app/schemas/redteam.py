@@ -25,19 +25,18 @@ SUPPORTED_CATEGORIES: list[str] = [
 ]
 
 DEFAULT_JUDGE_MODELS: list[str] = [
-    "gemini-1.5-pro",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
 ]
 
 
 class RedTeamRunCreate(ORMBase):
     agent_id: uuid.UUID
     categories: list[str] = Field(
-        default_factory=lambda: list(SUPPORTED_CATEGORIES),
         min_length=1,
     )
-    judge_model: str = "gemini-1.5-pro"
+    judge_model: str = "gemini-2.5-pro"
     use_llm_judge: bool = True
     include_custom_cases: bool = True
     selected_case_ids: list[str] | None = Field(
@@ -47,6 +46,12 @@ class RedTeamRunCreate(ORMBase):
             "or custom test case UUID). Omit or null to run all prompts in each category."
         ),
     )
+    scan_mode: Literal["custom", "deepeval"] = "custom"
+    attack_enhancements: dict[str, float] | None = None
+    target_purpose: str | None = None
+    target_system_prompt: str | None = None
+
+
 
 
 class RedTeamRunQueued(ORMBase):
@@ -210,3 +215,22 @@ def redteam_test_case_from_orm(row: Any) -> RedTeamTestCaseRead:
         extra=dict(row.extra or {}),
         created_at=row.created_at,
     )
+
+
+class DeepEvalVulnerabilityMeta(ORMBase):
+    id: str
+    name: str
+    description: str
+
+
+class VulnerabilitiesListResponse(ORMBase):
+    vulnerabilities: list[DeepEvalVulnerabilityMeta]
+
+
+class VulnerabilitySummaryRead(ORMBase):
+    vulnerability: str
+    average_score: float
+    failed_attacks: int
+    total_attacks: int
+    risk_level: str
+

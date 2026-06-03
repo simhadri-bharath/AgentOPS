@@ -100,7 +100,7 @@ class ResponseClassifier:
         self,
         *,
         use_llm_judge: bool = True,
-        judge_model: str = "gemini-1.5-pro",
+        judge_model: str = "gemini-2.5-pro",
     ) -> None:
         self._use_llm_judge = use_llm_judge
         self._judge_model = judge_model

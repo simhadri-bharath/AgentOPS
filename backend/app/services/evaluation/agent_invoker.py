@@ -44,14 +44,14 @@ class AgentInvoker:
         self._project_id: str | None = None
         self._region: str | None = None
 
-    def initialize(self) -> None:
+    def initialize(self, *, region_override: str | None = None) -> None:
         ok, err = check_evals_dependencies()
         if not ok:
             raise RuntimeError(err or "Evaluation dependencies not installed")
 
         auth = require_adc()
         self._project_id = self._settings.gcp_project_id or auth.project_id
-        self._region = self._settings.gcp_region
+        self._region = region_override or self._settings.gcp_region
         if not self._project_id:
             raise RuntimeError("GCP_PROJECT_ID is required for agent invocation")
 
@@ -67,9 +67,10 @@ class AgentInvoker:
             extra={"component": "agent_invoker", "project_id": self._project_id},
         )
 
-    def _ensure_client(self) -> Any:
-        if self._client is None:
-            self.initialize()
+    def _ensure_client(self, *, resource_name: str | None = None) -> Any:
+        desired_region = self._region_from_resource_name(resource_name) or self._settings.gcp_region
+        if self._client is None or self._region != desired_region:
+            self.initialize(region_override=desired_region)
         return self._client
 
     def invoke_agent(
@@ -97,8 +98,9 @@ class AgentInvoker:
         if not rows:
             return []
 
-        client = self._ensure_client()
+        client = self._ensure_client(resource_name=resource_name)
         df = build_inference_dataframe(rows)
+        effective_region = self._region_from_resource_name(resource_name) or self._region
 
         last_error: str | None = None
         for attempt in range(self._settings.evaluation_max_retries + 1):
@@ -139,7 +141,7 @@ class AgentInvoker:
                 results = self._parse_result_dataframe(
                     result_df, len(rows), per_row_ms, inference_output
                 )
-                return self._fallback_empty_results(resource_name, rows, results, user_id)
+                return self._fallback_empty_results(resource_name, rows, results, user_id, region=effective_region)
             except Exception as exc:
                 last_error = str(exc)
                 logger.warning(
@@ -189,11 +191,13 @@ class AgentInvoker:
         rows: list[dict[str, str]],
         results: list[InvokeResult],
         user_id: str,
+        region: str | None = None,
     ) -> list[InvokeResult]:
         """Retry empty run_inference rows via direct stream_query."""
-        if not self._project_id or not self._region:
-            self.initialize()
-        assert self._project_id and self._region
+        effective_region = region or self._region_from_resource_name(resource_name) or self._settings.gcp_region
+        if not self._project_id or not self._region or self._region != effective_region:
+            self.initialize(region_override=effective_region)
+        assert self._project_id and effective_region
 
         out: list[InvokeResult] = []
         for i, (row, result) in enumerate(zip(rows, results)):
@@ -214,7 +218,7 @@ class AgentInvoker:
             start = time.perf_counter()
             text, events, err = stream_query_prompt(
                 project_id=self._project_id,
-                region=self._region,
+                region=effective_region,
                 resource_name=resource_name,
                 prompt=prompt,
                 user_id=user_id,
@@ -297,3 +301,15 @@ class AgentInvoker:
             return ""
         text, _ = extract_response_text(df.iloc[0], df)
         return text
+
+    @staticmethod
+    def _region_from_resource_name(resource_name: str | None) -> str | None:
+        if not resource_name:
+            return None
+        marker = "/locations/"
+        if marker not in resource_name:
+            return None
+        try:
+            return resource_name.split(marker, 1)[1].split("/", 1)[0]
+        except Exception:
+            return None

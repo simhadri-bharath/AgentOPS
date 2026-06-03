@@ -80,7 +80,7 @@ class DeepEvalAdapter:
     All metrics use Vertex Gemini via DeepEvalBaseLLM (platform GCP ADC).
     """
 
-    def __init__(self, model: str = "gemini-1.5-pro") -> None:
+    def __init__(self, model: str = "gemini-2.5-pro") -> None:
         ok, err = check_deepeval_available()
         if not ok:
             raise RuntimeError(err or "DeepEval unavailable")

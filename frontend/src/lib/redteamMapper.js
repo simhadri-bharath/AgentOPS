@@ -28,8 +28,17 @@ export function runStatusVariant(status) {
 export function categoryLabel(id) {
   const map = {
     prompt_injection: 'Prompt injection',
+    PROMPT_INJECTION: 'Prompt injection',
     jailbreak: 'Jailbreak',
+    JAILBREAK: 'Jailbreak',
     pii_extraction: 'PII extraction',
+    PII_DIRECT: 'PII direct disclosure',
+    PII_API_DB: 'PII API & DB leakage',
+    DATA_LEAKAGE: 'Data leakage (session)',
+    PRIVACY: 'Privacy violations',
+    EXCESSIVE_AGENCY: 'Excessive agency',
+    HALLUCINATION: 'Hallucination',
+    TOXICITY: 'Toxicity',
     boundary: 'Boundary',
   }
   return map[id] || id

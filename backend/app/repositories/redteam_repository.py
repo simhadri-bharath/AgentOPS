@@ -79,6 +79,7 @@ class RedTeamRepository:
         run: RedTeamRun,
         *,
         status: str | None = None,
+        config: dict[str, Any] | None = None,
         total_tests: int | None = None,
         passed: int | None = None,
         failed: int | None = None,
@@ -90,6 +91,8 @@ class RedTeamRepository:
     ) -> RedTeamRun:
         if status is not None:
             run.status = status
+        if config is not None:
+            run.config = config
         if total_tests is not None:
             run.total_tests = total_tests
         if passed is not None:

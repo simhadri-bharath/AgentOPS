@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     evaluation_max_retries: int = Field(default=2, alias="EVALUATION_MAX_RETRIES")
 
     redteam_default_judge: str = Field(
-        default="gemini-1.5-pro",
+        default="gemini-2.5-pro",
         alias="REDTEAM_DEFAULT_JUDGE",
     )
     redteam_use_llm_judge: bool = Field(default=True, alias="REDTEAM_USE_LLM_JUDGE")

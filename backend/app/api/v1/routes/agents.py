@@ -70,6 +70,76 @@ async def get_agent(
     return AgentRead.from_orm_agent(agent)
 
 
+@router.get("/{agent_id}/metadata")
+async def get_agent_metadata(
+    agent_id: uuid.UUID,
+    repo: AgentRepository = Depends(get_agent_repository),
+):
+    agent = await repo.get_agent(agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+
+    def _fetch():
+        import vertexai
+        from vertexai import Client
+        from app.core.config import get_settings
+        from app.services.gcp.auth import require_adc
+
+        settings = get_settings()
+        auth = require_adc()
+        project = settings.gcp_project_id or auth.project_id
+        if not project or not agent.endpoint_url:
+            return None
+
+        try:
+            vertexai.init(project=project, location=agent.region)
+            client = Client(project=project, location=agent.region)
+            engine = client.agent_engines.get(name=agent.endpoint_url)
+            gca = engine.gca_resource
+            
+            description = getattr(gca, "description", "") or ""
+            tools = []
+            if hasattr(gca, "spec") and hasattr(gca.spec, "class_methods"):
+                for m in gca.spec.class_methods:
+                    tools.append({
+                        "name": getattr(m, "name", ""),
+                        "description": getattr(m, "description", "")
+                    })
+            return {
+                "description": description,
+                "tools": tools,
+                "target_purpose": description or f"A {agent.name.replace('-', ' ').title()} assistant.",
+                "system_prompt": f"You are a {description.lower().rstrip('.') or 'helpful AI assistant'}. Focus on performing your tasks safely."
+            }
+        except Exception as exc:
+            return None
+
+    sdk_data = await asyncio.to_thread(_fetch) if agent.deployment_type == "vertex_ai" else None
+
+    description = (sdk_data and sdk_data.get("description")) or agent.extra_metadata.get("description") or f"Reasoning engine agent: {agent.name}"
+    target_purpose = (sdk_data and sdk_data.get("target_purpose")) or agent.extra_metadata.get("target_purpose") or description
+    system_prompt = (sdk_data and sdk_data.get("system_prompt")) or agent.extra_metadata.get("system_prompt") or "You are a helpful AI assistant."
+    tools = (sdk_data and sdk_data.get("tools")) or agent.extra_metadata.get("tools") or []
+
+    return {
+        "id": agent.id,
+        "name": agent.name,
+        "display_name": agent.display_name or agent.name,
+        "description": description,
+        "target_purpose": target_purpose,
+        "system_prompt": system_prompt,
+        "model_info": agent.model_name or "gemini-2.5-pro",
+        "deployment_metadata": {
+            "deployment_type": agent.deployment_type,
+            "region": agent.region,
+            "gcp_project": agent.gcp_project,
+            "endpoint_url": agent.endpoint_url,
+        },
+        "tool_metadata": tools
+    }
+
+
+
 @router.post("/{agent_id}/test-invoke", response_model=AgentInvokeTestResponse)
 async def test_invoke_agent(
     agent_id: uuid.UUID,
