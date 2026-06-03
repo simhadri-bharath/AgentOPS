@@ -24,37 +24,63 @@ def stream_query_prompt(
     user_id: str = "agentops_eval_user",
 ) -> tuple[str, list[dict[str, Any]], str | None]:
     """
-    Invoke deployed agent via Client.agent_engines (same path as Vertex evals SDK).
+    Invoke deployed agent via Client.agent_engines service API.
     Returns (text, raw_events, error).
+
+    Uses client.agent_engines._stream_query() which is the correct
+    GenAI SDK method for querying agent engines. The AgentEngine object
+    returned by .get() is a Pydantic data model without query methods.
     """
     import vertexai
     from vertexai import Client
 
     vertexai.init(project=project_id, location=region)
     client = Client(project=project_id, location=region)
-    agent_engine = client.agent_engines.get(name=resource_name)
 
-    session_id = _create_session(agent_engine, user_id=user_id)
+    # Create a session via the service API
+    session_id = _create_session(client, resource_name=resource_name, user_id=user_id)
     events: list[dict[str, Any]] = []
 
     start = time.perf_counter()
     try:
-        for event in agent_engine.stream_query(  # type: ignore[attr-defined]
-            user_id=user_id,
-            session_id=session_id,
-            message=prompt,
+        # Use the service-level _stream_query (the AgentEngine pydantic model
+        # returned by .get() does NOT have stream_query/query methods).
+        for event in client.agent_engines._stream_query(
+            name=resource_name,
+            config={
+                "class_method": "stream_query",
+                "input": {
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "message": prompt,
+                },
+            },
         ):
             if isinstance(event, dict):
                 events.append(event)
+            else:
+                # Some SDK versions return typed objects; convert to dict
+                try:
+                    events.append(event.to_json_dict() if hasattr(event, "to_json_dict") else {"raw": str(event)})
+                except Exception:
+                    events.append({"raw": str(event)})
     except Exception as exc:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
+        err_str = str(exc)
         logger.warning(
             "stream_query failed after %sms: %s",
             elapsed_ms,
             exc,
             extra={"component": "reasoning_engine_direct"},
         )
-        return "", events, str(exc)
+        # If stream_query class method is not found, try plain query
+        if "not found" in err_str or "not supported" in err_str.lower():
+            logger.info(
+                "stream_query not available, trying query fallback",
+                extra={"component": "reasoning_engine_direct"},
+            )
+            return _query_fallback(client, resource_name, prompt, user_id, session_id)
+        return "", events, err_str
 
     text = collect_text_from_events(events)
     if not text and events:
@@ -78,23 +104,109 @@ def stream_query_prompt(
     return text, events, None
 
 
-def _create_session(agent_engine: Any, *, user_id: str) -> str:
+def _query_fallback(
+    client: Any,
+    resource_name: str,
+    prompt: str,
+    user_id: str,
+    session_id: str,
+) -> tuple[str, list[dict[str, Any]], str | None]:
+    """Fallback: try client.agent_engines._query() if stream_query is unavailable."""
+    start = time.perf_counter()
     try:
-        session = agent_engine.create_session(user_id=user_id)  # type: ignore[attr-defined]
-        return session["id"]
-    except AttributeError:
-        if agent_engine.api_resource is None or agent_engine.api_client is None:
-            raise RuntimeError("Cannot create session: agent engine API resource missing") from None
-        from vertexai import types
-
-        operation = agent_engine.api_client.sessions.create(
-            name=agent_engine.api_resource.name,
-            user_id=user_id,
-            config=types.CreateAgentEngineSessionConfig(),
+        response = client.agent_engines._query(
+            name=resource_name,
+            config={
+                "class_method": "query",
+                "input": {
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "message": prompt,
+                },
+            },
         )
-        if operation.response and operation.response.name:
-            return operation.response.name.split("/")[-1]
-        raise RuntimeError(f"Session create failed: {operation.error}")
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        # Extract text from the response
+        text = ""
+        events: list[dict[str, Any]] = []
+        if response:
+            resp_dict = response.to_json_dict() if hasattr(response, "to_json_dict") else {}
+            events = [resp_dict] if resp_dict else []
+            # Try to extract output text from response
+            text = _extract_text_from_query_response(resp_dict)
+        if text:
+            return text, events, None
+        return "", events, "Agent query returned no text (check Vertex agent logs)"
+    except Exception as exc:
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        logger.warning(
+            "query fallback also failed after %sms: %s",
+            elapsed_ms,
+            exc,
+            extra={"component": "reasoning_engine_direct"},
+        )
+        return "", [], str(exc)
+
+
+def _extract_text_from_query_response(resp: dict[str, Any]) -> str:
+    """Best-effort text extraction from a query response dict."""
+    if not resp or not isinstance(resp, dict):
+        return ""
+    # Try common response shapes
+    for key in ("output", "response", "text", "result"):
+        if key in resp:
+            val = resp[key]
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+            if isinstance(val, dict):
+                for sub_key in ("text", "output", "content"):
+                    if sub_key in val and isinstance(val[sub_key], str):
+                        return val[sub_key].strip()
+    # Try content.parts[].text
+    try:
+        parts = resp.get("content", {}).get("parts", [])
+        for part in parts:
+            if isinstance(part, dict) and part.get("text"):
+                return str(part["text"]).strip()
+    except (AttributeError, TypeError, KeyError):
+        pass
+    return ""
+
+
+def _create_session(client: Any, *, resource_name: str, user_id: str) -> str:
+    """Create a session using the service-level API (client.agent_engines)."""
+    try:
+        operation = client.agent_engines.create_session(
+            name=resource_name,
+            user_id=user_id,
+        )
+        # AgentEngineSessionOperation wraps the response
+        if hasattr(operation, "response") and operation.response:
+            resp = operation.response
+            if hasattr(resp, "name") and resp.name:
+                return resp.name.split("/")[-1]
+            if isinstance(resp, dict) and resp.get("name"):
+                return resp["name"].split("/")[-1]
+        # Some SDK versions return the session directly
+        if hasattr(operation, "name") and operation.name:
+            return operation.name.split("/")[-1]
+        if isinstance(operation, dict) and operation.get("id"):
+            return operation["id"]
+        # Generate a fallback session ID
+        import uuid
+        logger.warning(
+            "Could not extract session ID from operation, using generated ID",
+            extra={"component": "reasoning_engine_direct"},
+        )
+        return f"eval-session-{uuid.uuid4().hex[:8]}"
+    except Exception as exc:
+        logger.warning(
+            "Session creation failed: %s — using generated session ID",
+            exc,
+            extra={"component": "reasoning_engine_direct"},
+        )
+        import uuid
+        return f"eval-session-{uuid.uuid4().hex[:8]}"
 
 
 def events_preview(events: list[dict[str, Any]], max_len: int = 500) -> str:

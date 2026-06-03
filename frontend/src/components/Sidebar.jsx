@@ -4,6 +4,7 @@ import {
   Brain, Building2, ChevronDown, LayoutDashboard, Bot, FlaskConical,
   BarChart2, History, Briefcase, Activity, Terminal, ShieldAlert, Rocket, Settings, Ellipsis
 } from 'lucide-react'
+import { useAgents } from '../context/AgentsContext'
 
 const NavSection = ({ label }) => (
   <div className="px-3 py-2 pt-3 text-[10px] font-medium text-gray-400 uppercase tracking-[0.06em]">
@@ -44,6 +45,7 @@ const projects = [
 ];
 
 export default function Sidebar() {
+  const { agents} = useAgents()
   return (
     <div
       className="w-[220px] flex-shrink-0 flex flex-col"
@@ -80,7 +82,7 @@ export default function Sidebar() {
       <div className="flex-1 overflow-y-auto">
         <NavSection label="Platform" />
         <NavItem to="/dashboard" icon={LayoutDashboard} label="Dashboard" />
-        <NavItem to="/agents" icon={Bot} label="Agents" badge="8" />
+        <NavItem to="/agents" icon={Bot} label="Agents" badge={agents.length} />
 
         <NavSection label="Evaluation" />
         <NavItem to="/evaluation" icon={FlaskConical} label="New Evaluation" />
@@ -92,8 +94,10 @@ export default function Sidebar() {
         <NavItem to="/traces" icon={Activity} label="Traces" />
         <NavItem to="/logs" icon={Terminal} label="Logs" />
 
-        <NavSection label="Testing" />
-        <NavItem to="/red-team" icon={ShieldAlert} label="Red Teaming" />
+        <NavSection label="Red team" />
+        <NavItem to="/red-team" icon={ShieldAlert} label="Scanner" />
+        {/* <NavItem to="/red-team/library" icon={ShieldAlert} label="Attack library" /> */}
+        {/* <NavItem to="/red-team/scan" icon={ShieldAlert} label="New scan" /> */}
 
         <NavSection label="Setup" />
         <NavItem to="/onboarding" icon={Rocket} label="Onboarding" />

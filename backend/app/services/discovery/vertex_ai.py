@@ -38,12 +38,15 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
         self._repository = AgentRepository(session)
         self._initialized = False
         self._project_id: str | None = None
-        self._region: str | None = None
+        self._regions: list[str] = []
 
     async def initialize(self) -> None:
         auth = require_adc()
         self._project_id = self._settings.gcp_project_id or auth.project_id
-        self._region = self._settings.gcp_region
+        
+        # Support a comma-separated list of regions
+        raw_regions = self._settings.gcp_region or "us-central1"
+        self._regions = [r.strip() for r in raw_regions.split(",") if r.strip()]
 
         if not self._project_id:
             raise RuntimeError(
@@ -51,14 +54,16 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
                 "configure your gcloud default project."
             )
 
-        await asyncio.to_thread(self._init_vertex_sdk, self._project_id, self._region)
+        # Pre-verify credentials by initializing once in the first region
+        if self._regions:
+            await asyncio.to_thread(self._init_vertex_sdk, self._project_id, self._regions[0])
         self._initialized = True
         logger.info(
-            "Vertex AI SDK initialized",
+            "Vertex AI SDK initialized for multi-region scanning",
             extra={
                 "component": "vertex_discovery",
                 "project_id": self._project_id,
-                "region": self._region,
+                "regions": self._regions,
             },
         )
 
@@ -72,29 +77,80 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
         if not self._initialized:
             raise RuntimeError("VertexAIDiscoveryService not initialized. Call initialize() first.")
 
-    async def list_reasoning_engines(self) -> list[Any]:
+    async def list_reasoning_engines(self) -> list[tuple[Any, str]]:
         self._ensure_initialized()
-        return await asyncio.to_thread(self._list_engines_sync)
+        
+        # If the user specified explicit regions (with comma), respect it.
+        # Otherwise, scan ALL major globally supported Vertex AI Reasoning Engine regions automatically!
+        raw_region = self._settings.gcp_region or ""
+        if "," in raw_region:
+            regions = [r.strip() for r in raw_region.split(",") if r.strip()]
+        elif raw_region and raw_region != "us-central1":
+            # Respect custom non-default region but also include common ones
+            regions = list(set([raw_region, "us-central1", "us-west1"]))
+        else:
+            # Complete list of common globally supported Vertex AI Reasoning Engine / Agent Runtime regions
+            regions = [
+                "us-central1",
+                "us-west1",
+                "us-east1",
+                "us-east4",
+                "europe-west1",
+                "europe-west3",
+                "europe-west9",
+                "asia-east1",
+                "asia-northeast1",
+                "asia-southeast1",
+            ]
+
+        # Execute all regional queries concurrently in parallel
+        tasks = [
+            asyncio.to_thread(self._list_engines_sync_in_region, self._project_id, region)
+            for region in regions
+        ]
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        all_engines: list[tuple[Any, str]] = []
+        for region, result in zip(regions, results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    "Skipped region %s during discovery (either unsupported or not enabled in your project): %s",
+                    region,
+                    result,
+                    extra={"component": "vertex_discovery", "region": region},
+                )
+                continue
+            for engine in result:
+                all_engines.append((engine, region))
+                
+        return all_engines
 
     @staticmethod
-    def _list_engines_sync() -> list[Any]:
+    def _list_engines_sync_in_region(project_id: str, region: str) -> list[Any]:
+        import vertexai
         from vertexai.preview import reasoning_engines
 
-        deployed = reasoning_engines.ReasoningEngine.list()
-        if deployed is None:
-            engines: list[Any] = []
-        elif isinstance(deployed, list):
-            engines = deployed
-        else:
-            engines = list(deployed)
+        try:
+            vertexai.init(project=project_id, location=region)
+            deployed = reasoning_engines.ReasoningEngine.list()
+            if deployed is None:
+                engines: list[Any] = []
+            elif isinstance(deployed, list):
+                engines = deployed
+            else:
+                engines = list(deployed)
 
-        logger.info(
-            "Listed reasoning engines",
-            extra={"component": "vertex_discovery", "count": len(engines)},
-        )
-        return engines
+            logger.info(
+                "Listed reasoning engines",
+                extra={"component": "vertex_discovery", "region": region, "count": len(engines)},
+            )
+            return engines
+        except Exception as exc:
+            # Raise exception so asyncio.gather can gracefully catch it per region
+            raise RuntimeError(f"Region {region} check failed: {exc}") from exc
 
-    def parse_reasoning_engine(self, engine: Any) -> AgentCreate:
+    def parse_reasoning_engine(self, engine: Any, region: str | None = None) -> AgentCreate:
         resource_name = getattr(engine, "resource_name", None) or str(engine)
         engine_id = resource_name.split("/")[-1]
         agent_uuid = uuid.uuid5(_AGENTOPS_NAMESPACE, resource_name)
@@ -103,7 +159,8 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
 
         create_time: datetime | None = None
         if hasattr(engine, "gca_resource") and hasattr(engine.gca_resource, "create_time"):
-            raw_time = engine.gca_resource.create_time
+            gca = engine.gca_resource
+            raw_time = getattr(gca, "create_time", None)
             if raw_time:
                 if isinstance(raw_time, datetime):
                     create_time = raw_time
@@ -125,6 +182,9 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
         if create_time:
             metadata["gcp_create_time"] = create_time.isoformat()
 
+        # Fallback if region is not supplied
+        engine_region = region or (self._regions[0] if self._regions else "us-central1")
+
         return AgentCreate(
             id=agent_uuid,
             name=self._slugify(display_name),
@@ -132,7 +192,7 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
             deployment_type="vertex_ai",
             endpoint_url=resource_name,
             model_name=model_name,
-            region=self._region,
+            region=engine_region,
             gcp_project=self._project_id,
             status="healthy",
             source="vertex_ai",
@@ -151,6 +211,7 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
             discovered=0, created=0, updated=0, unchanged=0
         )
         active_endpoints: set[str] = set()
+        scanned_regions: set[str] = set()
 
         try:
             engines = await self.list_reasoning_engines()
@@ -161,9 +222,10 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
 
         summary.discovered = len(engines)
 
-        for engine in engines:
+        for engine, region in engines:
+            scanned_regions.add(region)
             try:
-                agent_data = self.parse_reasoning_engine(engine)
+                agent_data = self.parse_reasoning_engine(engine, region)
                 if agent_data.endpoint_url:
                     active_endpoints.add(agent_data.endpoint_url)
 
@@ -191,7 +253,9 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
                 )
                 summary.errors.append(str(exc))
 
-        stale = await self._repository.mark_stale_agents(active_endpoints, "vertex_ai")
+        stale = await self._repository.mark_stale_agents_in_regions(
+            active_endpoints, "vertex_ai", scanned_regions
+        )
         if stale:
             logger.info(
                 "Marked stale agents inactive",
@@ -225,8 +289,8 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
         try:
             engines = await self.list_reasoning_engines()
             samples = []
-            for engine in engines[:5]:
-                parsed = self.parse_reasoning_engine(engine)
+            for engine, region in engines[:5]:
+                parsed = self.parse_reasoning_engine(engine, region)
                 samples.append(
                     {
                         "name": parsed.display_name,
@@ -237,7 +301,7 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
             return {
                 "authenticated": True,
                 "project_id": self._project_id,
-                "region": self._region,
+                "region": ", ".join(self._regions),
                 "engine_count": len(engines),
                 "message": f"Successfully connected. Found {len(engines)} reasoning engine(s).",
                 "sample_engines": samples,
@@ -247,7 +311,7 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
             return {
                 "authenticated": False,
                 "project_id": self._project_id,
-                "region": self._region,
+                "region": ", ".join(self._regions) if hasattr(self, "_regions") else "us-central1",
                 "engine_count": 0,
                 "message": str(exc),
                 "sample_engines": [],

@@ -1,7 +1,8 @@
 import React from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { RefreshCw, Plus, Search } from 'lucide-react'
+import { RefreshCw, Plus, Search, Loader2 } from 'lucide-react'
 import Btn from './Btn'
+import { useAgents } from '../context/AgentsContext'
 
 const breadcrumbMap = {
   '/dashboard': 'Dashboard',
@@ -19,6 +20,15 @@ const breadcrumbMap = {
 export default function Topbar() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
+  const { syncing, syncDiscovery } = useAgents()
+
+  const handleSync = async () => {
+    try {
+      await syncDiscovery()
+    } catch {
+      /* error in context */
+    }
+  }
   const label = Object.entries(breadcrumbMap).find(([k]) => pathname.startsWith(k))?.[1] || 'Dashboard'
 
   return (
@@ -38,9 +48,9 @@ export default function Topbar() {
             style={{ width: 200, paddingLeft: 28 }}
           />
         </div>
-        <Btn>
-          <RefreshCw size={13} />
-          Sync GCP
+        <Btn onClick={handleSync} disabled={syncing}>
+          {syncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+          {syncing ? 'Syncing…' : 'Sync GCP'}
         </Btn>
         <Btn primary onClick={() => navigate('/evaluation')}>
           <Plus size={13} />
