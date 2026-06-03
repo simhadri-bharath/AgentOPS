@@ -54,9 +54,8 @@ export default function RedTeamRunResults() {
   return (
     <div>
       <PageHeader
-        title={`Scan ${shortId(runId)}`}
+        title={`${run?.agent_name || 'Agent'} - Scan ${shortId(runId)}`}
         subtitle={`Status: ${run?.status || '—'} · Progress: ${completed}/${total} · Judge: ${run?.judge_model || '—'}`}
-
       >
         <Link to="/red-team/scan">
           <span className="text-[12px] text-indigo-600">New scan</span>

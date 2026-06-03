@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.models.redteam_result import RedTeamResult
 from app.models.redteam_run import RedTeamRun
@@ -41,7 +41,7 @@ class RedTeamRepository:
 
     async def get_run(self, run_id: uuid.UUID) -> RedTeamRun | None:
         result = await self._session.execute(
-            select(RedTeamRun).where(RedTeamRun.id == run_id)
+            select(RedTeamRun).where(RedTeamRun.id == run_id).options(joinedload(RedTeamRun.agent))
         )
         return result.scalar_one_or_none()
 
@@ -49,7 +49,7 @@ class RedTeamRepository:
         result = await self._session.execute(
             select(RedTeamRun)
             .where(RedTeamRun.id == run_id)
-            .options(selectinload(RedTeamRun.results))
+            .options(selectinload(RedTeamRun.results), joinedload(RedTeamRun.agent))
         )
         return result.scalar_one_or_none()
 
@@ -61,7 +61,7 @@ class RedTeamRepository:
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[RedTeamRun], int]:
-        query = select(RedTeamRun)
+        query = select(RedTeamRun).options(joinedload(RedTeamRun.agent))
         count_q = select(func.count()).select_from(RedTeamRun)
         if agent_id:
             query = query.where(RedTeamRun.agent_id == agent_id)

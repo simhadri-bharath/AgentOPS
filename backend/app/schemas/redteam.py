@@ -60,6 +60,7 @@ class RedTeamRunQueued(ORMBase):
 class RedTeamRunRead(ORMBase):
     id: uuid.UUID
     agent_id: uuid.UUID
+    agent_name: str | None = None
     status: str
     categories: list[str]
     judge_model: str
@@ -154,9 +155,13 @@ class RedTeamDashboardStats(ORMBase):
 
 
 def redteam_run_from_orm(run: Any) -> RedTeamRunRead:
+    agent_name = None
+    if hasattr(run, "agent") and run.agent is not None:
+        agent_name = run.agent.name
     return RedTeamRunRead(
         id=run.id,
         agent_id=run.agent_id,
+        agent_name=agent_name,
         status=run.status,
         categories=list(run.categories or []),
         judge_model=run.judge_model,

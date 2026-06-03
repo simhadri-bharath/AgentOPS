@@ -2,13 +2,16 @@
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+
+if TYPE_CHECKING:
+    from app.models.agent import Agent
 
 
 class RedTeamRun(Base):
@@ -39,3 +42,4 @@ class RedTeamRun(Base):
     results: Mapped[list["RedTeamResult"]] = relationship(
         "RedTeamResult", back_populates="run", cascade="all, delete-orphan"
     )
+    agent: Mapped["Agent"] = relationship("Agent")

@@ -81,6 +81,7 @@ export default function RedTeamDashboard() {
             <Table>
               <THead>
                 <Th>Run</Th>
+                <Th>Agent</Th>
                 <Th>Status</Th>
                 <Th>Failed</Th>
                 <Th></Th>
@@ -89,6 +90,7 @@ export default function RedTeamDashboard() {
                 {runs.map((r) => (
                   <TRow key={r.id}>
                     <Td>{shortId(r.id)}</Td>
+                    <Td>{r.agent_name || '—'}</Td>
                     <Td>
                       <Badge variant={runStatusVariant(r.status)}>{r.status}</Badge>
                     </Td>
