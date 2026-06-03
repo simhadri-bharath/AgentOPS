@@ -92,8 +92,10 @@ export default function Sidebar() {
         <NavItem to="/traces" icon={Activity} label="Traces" />
         <NavItem to="/logs" icon={Terminal} label="Logs" />
 
-        <NavSection label="Testing" />
-        <NavItem to="/red-team" icon={ShieldAlert} label="Red Teaming" />
+        <NavSection label="Red team" />
+        <NavItem to="/red-team" icon={ShieldAlert} label="Scanner" />
+        {/* <NavItem to="/red-team/library" icon={ShieldAlert} label="Attack library" /> */}
+        {/* <NavItem to="/red-team/scan" icon={ShieldAlert} label="New scan" /> */}
 
         <NavSection label="Setup" />
         <NavItem to="/onboarding" icon={Rocket} label="Onboarding" />
