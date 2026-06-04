@@ -46,6 +46,8 @@ class VertexGeminiJudge(DeepEvalBaseLLM):
         return self._client_model
 
     def generate(self, prompt: str, *args, **kwargs) -> str:  # type: ignore[no-untyped-def]
+        if "schema" in kwargs:
+            raise TypeError("Schema-based generation is not supported directly by this custom judge.")
         if self._client_model is None:
             self.load_model()
         assert self._client_model is not None
@@ -56,7 +58,10 @@ class VertexGeminiJudge(DeepEvalBaseLLM):
         return (response.text or "").strip()
 
     async def a_generate(self, prompt: str, *args, **kwargs) -> str:  # type: ignore[no-untyped-def]
-        return await asyncio.to_thread(self.generate, prompt)
+        if "schema" in kwargs:
+            raise TypeError("Schema-based generation is not supported directly by this custom judge.")
+        return await asyncio.to_thread(self.generate, prompt, *args, **kwargs)
 
     def get_model_name(self, *args, **kwargs) -> str:  # type: ignore[no-untyped-def]
         return self._model_name
+

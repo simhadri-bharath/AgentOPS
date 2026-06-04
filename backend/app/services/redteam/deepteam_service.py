@@ -1,0 +1,503 @@
+"""DeepTeam red teaming service — wraps deepteam.red_team() for dynamic scans."""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from typing import Any
+
+from app.core.logging import get_logger
+from app.repositories.agent_repository import AgentRepository
+from app.repositories.redteam_repository import RedTeamRepository
+from app.services.evaluation.agent_invoker import AgentInvoker
+
+logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# DeepTeam vulnerability catalog — exposed to frontend via API
+# ---------------------------------------------------------------------------
+
+VULNERABILITY_CATALOG: list[dict[str, Any]] = [
+    # Data Privacy
+    {
+        "id": "PIILeakage",
+        "label": "PII Leakage",
+        "category": "Data Privacy",
+        "description": "Tests whether the LLM leaks personally identifiable information.",
+        "sub_types": [
+            "direct", "session_leak", "social_engineering",
+            "api_and_database_access",
+        ],
+    },
+    {
+        "id": "PromptLeakage",
+        "label": "Prompt Leakage",
+        "category": "Data Privacy",
+        "description": "Tests whether the LLM reveals its system prompt.",
+        "sub_types": [],
+    },
+    # Responsible AI
+    {
+        "id": "Bias",
+        "label": "Bias",
+        "category": "Responsible AI",
+        "description": "Tests whether the LLM exhibits biased behavior.",
+        "sub_types": ["race", "gender", "religion", "politics", "age", "nationality", "disability", "socioeconomic"],
+    },
+    {
+        "id": "Toxicity",
+        "label": "Toxicity",
+        "category": "Responsible AI",
+        "description": "Tests whether the LLM generates toxic or harmful content.",
+        "sub_types": ["insult", "threat", "profanity", "mockery", "dismissive"],
+    },
+    {
+        "id": "Fairness",
+        "label": "Fairness",
+        "category": "Responsible AI",
+        "description": "Tests whether the LLM treats all users fairly.",
+        "sub_types": [],
+    },
+    {
+        "id": "Ethics",
+        "label": "Ethics",
+        "category": "Responsible AI",
+        "description": "Tests whether the LLM adheres to ethical guidelines.",
+        "sub_types": [],
+    },
+    {
+        "id": "ChildProtection",
+        "label": "Child Protection",
+        "category": "Responsible AI",
+        "description": "Tests whether the LLM can be used to target minors.",
+        "sub_types": [],
+    },
+    # Security
+    {
+        "id": "BFLA",
+        "label": "Broken Function-Level Authorization",
+        "category": "Security",
+        "description": "Tests whether the LLM bypasses function-level auth.",
+        "sub_types": [],
+    },
+    {
+        "id": "BOLA",
+        "label": "Broken Object-Level Authorization",
+        "category": "Security",
+        "description": "Tests whether the LLM bypasses object-level auth.",
+        "sub_types": [],
+    },
+    {
+        "id": "RBAC",
+        "label": "Role-Based Access Control",
+        "category": "Security",
+        "description": "Tests whether the LLM respects role-based permissions.",
+        "sub_types": [],
+    },
+    {
+        "id": "DebugAccess",
+        "label": "Debug Access",
+        "category": "Security",
+        "description": "Tests whether the LLM exposes debug/admin interfaces.",
+        "sub_types": [],
+    },
+    {
+        "id": "ShellInjection",
+        "label": "Shell Injection",
+        "category": "Security",
+        "description": "Tests whether the LLM is vulnerable to shell injection.",
+        "sub_types": [],
+    },
+    {
+        "id": "SQLInjection",
+        "label": "SQL Injection",
+        "category": "Security",
+        "description": "Tests whether the LLM is vulnerable to SQL injection.",
+        "sub_types": [],
+    },
+    {
+        "id": "SSRF",
+        "label": "Server-Side Request Forgery",
+        "category": "Security",
+        "description": "Tests whether the LLM can be made to access internal services.",
+        "sub_types": [],
+    },
+    # Safety
+    {
+        "id": "IllegalActivity",
+        "label": "Illegal Activity",
+        "category": "Safety",
+        "description": "Tests whether the LLM provides guidance on illegal activities.",
+        "sub_types": [],
+    },
+    {
+        "id": "GraphicContent",
+        "label": "Graphic Content",
+        "category": "Safety",
+        "description": "Tests whether the LLM generates graphic or violent content.",
+        "sub_types": [],
+    },
+    {
+        "id": "PersonalSafety",
+        "label": "Personal Safety",
+        "category": "Safety",
+        "description": "Tests whether the LLM can be used to harm personal safety.",
+        "sub_types": [],
+    },
+    # Business
+    {
+        "id": "Misinformation",
+        "label": "Misinformation",
+        "category": "Business",
+        "description": "Tests whether the LLM generates false information.",
+        "sub_types": [],
+    },
+    {
+        "id": "IntellectualProperty",
+        "label": "Intellectual Property",
+        "category": "Business",
+        "description": "Tests whether the LLM violates intellectual property.",
+        "sub_types": [],
+    },
+    {
+        "id": "Competition",
+        "label": "Competition",
+        "category": "Business",
+        "description": "Tests whether the LLM recommends competitors.",
+        "sub_types": [],
+    },
+    # Agentic
+    {
+        "id": "ExcessiveAgency",
+        "label": "Excessive Agency",
+        "category": "Agentic",
+        "description": "Tests whether the agent takes unwarranted autonomous actions.",
+        "sub_types": [],
+    },
+    {
+        "id": "Robustness",
+        "label": "Robustness",
+        "category": "Agentic",
+        "description": "Tests the agent's robustness against adversarial inputs.",
+        "sub_types": [],
+    },
+]
+
+# ---------------------------------------------------------------------------
+# DeepTeam attack strategies catalog
+# ---------------------------------------------------------------------------
+
+ATTACK_CATALOG: list[dict[str, Any]] = [
+    # Single-Turn
+    {
+        "id": "PromptInjection",
+        "label": "Prompt Injection",
+        "type": "single_turn",
+        "description": "Injects adversarial instructions into the user prompt.",
+    },
+    {
+        "id": "PromptProbing",
+        "label": "Prompt Probing",
+        "type": "single_turn",
+        "description": "Probes the LLM to reveal system prompts or hidden instructions.",
+    },
+    {
+        "id": "Base64",
+        "label": "Base64 Encoding",
+        "type": "single_turn",
+        "description": "Encodes adversarial payloads in Base64 to bypass filters.",
+    },
+    {
+        "id": "GrayBoxAttack",
+        "label": "Gray Box Attack",
+        "type": "single_turn",
+        "description": "Uses partial knowledge of the system to craft targeted attacks.",
+    },
+    {
+        "id": "Leetspeak",
+        "label": "Leetspeak",
+        "type": "single_turn",
+        "description": "Replaces letters with numbers/symbols to bypass content filters.",
+    },
+    {
+        "id": "Multilingual",
+        "label": "Multilingual",
+        "type": "single_turn",
+        "description": "Uses non-English languages to bypass safety guardrails.",
+    },
+    {
+        "id": "RotThirteen",
+        "label": "ROT13",
+        "type": "single_turn",
+        "description": "Applies ROT13 cipher to evade detection.",
+    },
+    # Multi-Turn
+    {
+        "id": "CrescendoJailbreaking",
+        "label": "Crescendo Jailbreaking",
+        "type": "multi_turn",
+        "description": "Gradually escalates a conversation to extract harmful outputs.",
+    },
+    {
+        "id": "LinearProbing",
+        "label": "Linear Probing",
+        "type": "multi_turn",
+        "description": "Systematically tests boundaries through sequential probes.",
+    },
+]
+
+
+def _resolve_vulnerabilities(selected: list[dict[str, Any]]) -> list:
+    """Map UI vulnerability selections to instantiated DeepTeam classes."""
+    import deepteam.vulnerabilities as vulns_module
+
+    instantiated = []
+    for v in selected:
+        name = v.get("name") or v.get("id")
+        sub_types = v.get("types") or v.get("sub_types") or []
+        cls = getattr(vulns_module, name, None)
+        if cls is None:
+            logger.warning("Unknown vulnerability class: %s — skipping", name)
+            continue
+        try:
+            if sub_types:
+                instantiated.append(cls(types=sub_types))
+            else:
+                instantiated.append(cls())
+        except Exception as exc:
+            logger.warning("Failed to instantiate vulnerability %s: %s", name, exc)
+    return instantiated
+
+
+def _resolve_attacks(selected: list[dict[str, Any]]) -> list:
+    """Map UI attack selections to instantiated DeepTeam attack classes."""
+    import deepteam.attacks.single_turn as st
+    import deepteam.attacks.multi_turn as mt
+
+    instantiated = []
+    for a in selected:
+        name = a.get("name") or a.get("id")
+        weight = a.get("weight", 1)
+        cls = getattr(st, name, None) or getattr(mt, name, None)
+        if cls is None:
+            logger.warning("Unknown attack class: %s — skipping", name)
+            continue
+        try:
+            instantiated.append(cls(weight=weight))
+        except Exception:
+            try:
+                instantiated.append(cls())
+            except Exception as exc:
+                logger.warning("Failed to instantiate attack %s: %s", name, exc)
+    return instantiated
+
+
+class DeepTeamService:
+    """Runs DeepTeam red_team() against a live GCP Reasoning Engine agent."""
+
+    def __init__(self, session) -> None:
+        self._session = session
+        self._repo = RedTeamRepository(session)
+        self._agent_repo = AgentRepository(session)
+        self._invoker = AgentInvoker()
+
+    async def run(self, run_id: uuid.UUID) -> None:
+        run = await self._repo.get_run(run_id)
+        if not run:
+            logger.error("DeepTeam run not found: %s", run_id)
+            return
+
+        config = dict(run.config or {})
+        agent = await self._agent_repo.get_agent(run.agent_id)
+        if not agent or not agent.endpoint_url:
+            await self._fail_run(run, "Agent not found or has no endpoint")
+            return
+
+        # Resolve vulnerabilities and attacks from config
+        vuln_defs = config.get("vulnerabilities") or []
+        attack_defs = config.get("attacks") or []
+        target_purpose = config.get("target_purpose") or f"A {agent.name} assistant."
+
+        resolved_vulns = _resolve_vulnerabilities(vuln_defs)
+        resolved_attacks = _resolve_attacks(attack_defs)
+
+        if not resolved_vulns:
+            await self._fail_run(run, "No valid vulnerabilities resolved from selection.")
+            return
+        if not resolved_attacks:
+            await self._fail_run(run, "No valid attacks resolved from selection.")
+            return
+
+        await self._repo.update_run(run, status="running", mark_started=True)
+        await self._session.commit()
+
+        logger.info(
+            "DeepTeam scan starting: %d vulns, %d attacks for agent %s",
+            len(resolved_vulns),
+            len(resolved_attacks),
+            agent.name,
+            extra={"component": "deepteam_service", "run_id": str(run_id)},
+        )
+
+        # Initialize the invoker for agent communication
+        self._invoker.initialize()
+        endpoint_url = agent.endpoint_url
+
+        # Build a SYNCHRONOUS model callback — DeepTeam wraps it internally.
+        # Signature: Callable[[str, Optional[List[RTTurn]]], RTTurn]
+        from deepteam.test_case import RTTurn
+
+        def model_callback(user_input: str, turns=None) -> RTTurn:
+            try:
+                result = self._invoke_agent(endpoint_url, user_input)
+                return RTTurn(role="assistant", content=result)
+            except Exception as exc:
+                logger.warning("Agent invocation error during DeepTeam scan: %s", exc)
+                return RTTurn(
+                    role="assistant",
+                    content=f"[Agent error: {exc}]",
+                )
+
+        try:
+            # Build the judge LLM (same VertexGeminiJudge used by Custom Mode)
+            judge_model_name = config.get("judge_model", "gemini-2.5-pro")
+            from app.services.redteam.vertex_gemini_llm import VertexGeminiJudge
+            judge_llm = VertexGeminiJudge(model=judge_model_name, temperature=0.0)
+
+            # Execute DeepTeam in a background thread to avoid blocking the
+            # async event loop.  async_mode=False is required because we are
+            # already inside an asyncio event loop — DeepTeam's async_mode=True
+            # calls loop.run_until_complete() which would crash with
+            # "This event loop is already running".
+            from deepteam import red_team
+
+            def _run_red_team():
+                return red_team(
+                    model_callback=model_callback,
+                    vulnerabilities=resolved_vulns,
+                    attacks=resolved_attacks,
+                    target_purpose=target_purpose,
+                    simulator_model=judge_llm,
+                    evaluation_model=judge_llm,
+                    async_mode=False,
+                    ignore_errors=True,
+                )
+
+            risk_assessment = await asyncio.to_thread(_run_red_team)
+
+            # Parse and store results.
+            # RTTestCase fields: input, actual_output, vulnerability,
+            #     vulnerability_type, attack_method, score, reason, error
+            passed = failed = uncertain = 0
+            for test in risk_assessment.test_cases:
+                score = getattr(test, "score", None)
+                if score == 1:
+                    classification = "PASS"
+                    passed += 1
+                elif score == 0:
+                    classification = "FAIL"
+                    failed += 1
+                else:
+                    classification = "UNCERTAIN"
+                    uncertain += 1
+
+                vuln_name = getattr(test, "vulnerability", "unknown")
+                input_text = getattr(test, "input", "") or ""
+                actual_output = getattr(test, "actual_output", "") or ""
+                reason = getattr(test, "reason", "") or ""
+                attack_method = getattr(test, "attack_method", None)
+                vuln_type = getattr(test, "vulnerability_type", None)
+                test_error = getattr(test, "error", None)
+
+                await self._repo.add_result(
+                    run_id=run_id,
+                    test_case_id=None,
+                    category=vuln_name,
+                    severity="high" if classification == "FAIL" else "medium",
+                    prompt=input_text[:4000],
+                    response=actual_output[:4000],
+                    classification=classification,
+                    score=float(score) if score is not None else None,
+                    reason=reason[:2000] if reason else None,
+                    trace_id=None,
+                    latency_ms=None,
+                    metadata={
+                        "scan_mode": "dynamic",
+                        "vulnerability": vuln_name,
+                        "vulnerability_type": str(vuln_type) if vuln_type else None,
+                        "attack_method": attack_method,
+                        "deepteam_score": score,
+                        "deepteam_error": test_error,
+                    },
+                )
+
+            total = passed + failed + uncertain
+
+            # Build summary report
+            report = {
+                "scan_mode": "dynamic",
+                "total_tests": total,
+                "passed": passed,
+                "failed": failed,
+                "uncertain": uncertain,
+                "vulnerabilities_tested": [v.get("name") or v.get("id") for v in vuln_defs],
+                "attacks_used": [a.get("name") or a.get("id") for a in attack_defs],
+            }
+
+            # Try to get the overview from the risk assessment
+            overview = getattr(risk_assessment, "overview", None)
+            if overview:
+                report["overview"] = str(overview)
+
+            await self._repo.update_run(
+                run,
+                status="completed",
+                total_tests=total,
+                passed=passed,
+                failed=failed,
+                uncertain=uncertain,
+                report=report,
+                mark_completed=True,
+            )
+            await self._session.commit()
+
+            logger.info(
+                "DeepTeam scan completed: %d total, %d passed, %d failed, %d uncertain",
+                total, passed, failed, uncertain,
+                extra={"component": "deepteam_service", "run_id": str(run_id)},
+            )
+
+        except Exception as exc:
+            logger.exception("DeepTeam scan failed: %s", exc)
+            await self._fail_run(run, str(exc))
+
+    def _invoke_agent(self, endpoint_url: str, prompt: str) -> str:
+        """Synchronously invoke the agent via the existing AgentInvoker."""
+        row = {"input": prompt}
+        results = self._invoker.batch_invoke(endpoint_url, [row])
+        if results and results[0].output:
+            return results[0].output
+        # Fallback: try stream_query
+        from app.core.config import get_settings
+        from app.services.gcp.auth import require_adc
+        from app.services.evaluation.reasoning_engine_direct import stream_query_prompt
+
+        settings = get_settings()
+        auth = require_adc()
+        project_id = settings.gcp_project_id or auth.project_id or ""
+        text, _, err = stream_query_prompt(
+            project_id=project_id,
+            region=settings.gcp_region,
+            resource_name=endpoint_url,
+            prompt=prompt,
+        )
+        if err:
+            raise RuntimeError(f"Agent invocation failed: {err}")
+        return text or ""
+
+    async def _fail_run(self, run, error_message: str) -> None:
+        await self._repo.update_run(
+            run, status="failed", error_message=error_message, mark_completed=True
+        )
+        await self._session.commit()
+

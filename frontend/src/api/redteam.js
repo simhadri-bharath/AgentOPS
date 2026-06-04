@@ -55,17 +55,43 @@ export function createTestCase(body) {
 export function startRedTeamRun(body) {
   const payload = {
     agent_id: body.agent_id,
-    categories: body.categories,
+    scan_mode: body.scan_mode || 'custom',
     judge_model: body.judge_model || 'gemini-2.5-flash',
-    use_llm_judge: body.use_llm_judge !== false,
-    include_custom_cases: body.include_custom_cases !== false,
   }
-  if (body.selected_case_ids != null) {
-    payload.selected_case_ids = body.selected_case_ids
+
+  if (body.scan_mode === 'dynamic') {
+    // Dynamic mode (DeepTeam) fields
+    payload.target_purpose = body.target_purpose
+    payload.target_system_prompt = body.target_system_prompt
+    payload.vulnerabilities = body.vulnerabilities
+    payload.attacks = body.attacks
+    payload.categories = (body.vulnerabilities || []).map((v) => v.name || v.id)
+  } else {
+    // Custom mode fields
+    payload.categories = body.categories
+    payload.use_llm_judge = body.use_llm_judge !== false
+    payload.include_custom_cases = body.include_custom_cases !== false
+    if (body.selected_case_ids != null) {
+      payload.selected_case_ids = body.selected_case_ids
+    }
   }
   return api.post('/api/v1/redteam/runs', payload)
 }
 
 export function fetchJudgeModels() {
   return api.get('/api/v1/redteam/meta/judge-models')
+}
+
+// DeepTeam catalog APIs
+export function fetchDeepTeamVulnerabilities() {
+  return api.get('/api/v1/redteam/deepteam/vulnerabilities')
+}
+
+export function fetchDeepTeamAttacks() {
+  return api.get('/api/v1/redteam/deepteam/attacks')
+}
+
+// Agent metadata (for metadata preview step)
+export function fetchAgentMetadata(agentId) {
+  return api.get(`/api/v1/agents/${agentId}/metadata`)
 }

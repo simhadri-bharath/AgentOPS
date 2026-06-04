@@ -84,6 +84,7 @@ class RedTeamRepository:
         failed: int | None = None,
         uncertain: int | None = None,
         report: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         error_message: str | None = None,
         mark_started: bool = False,
         mark_completed: bool = False,
@@ -100,6 +101,8 @@ class RedTeamRepository:
             run.uncertain = uncertain
         if report is not None:
             run.report = report
+        if config is not None:
+            run.config = config
         if error_message is not None:
             run.error_message = error_message
         now = datetime.now(timezone.utc)

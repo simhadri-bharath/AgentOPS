@@ -36,9 +36,12 @@ DEFAULT_JUDGE_MODELS: list[str] = [
 
 class RedTeamRunCreate(ORMBase):
     agent_id: uuid.UUID
+    scan_mode: str = Field(
+        default="custom",
+        description="Scan mode: 'custom' (heuristic library) or 'dynamic' (DeepTeam).",
+    )
     categories: list[str] = Field(
         default_factory=lambda: list(SUPPORTED_CATEGORIES),
-        min_length=1,
     )
     judge_model: str = "gemini-2.5-flash"
     use_llm_judge: bool = True
@@ -49,6 +52,17 @@ class RedTeamRunCreate(ORMBase):
             "Optional attack prompt ids to run (library external_id e.g. pi-01, "
             "or custom test case UUID). Omit or null to run all prompts in each category."
         ),
+    )
+    # Dynamic mode (DeepTeam) fields
+    target_purpose: str | None = None
+    target_system_prompt: str | None = None
+    vulnerabilities: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="DeepTeam vulnerability selections: [{name, types}]",
+    )
+    attacks: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="DeepTeam attack selections: [{name, weight}]",
     )
 
 
