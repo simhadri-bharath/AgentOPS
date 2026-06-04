@@ -1,10 +1,11 @@
 import asyncio
 import uuid
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from deepeval.models.base_model import DeepEvalBaseLLM
-from deepeval.red_teaming import RedTeamer, Vulnerability, AttackEnhancement
+from deepteam.red_teamer import RedTeamer
+from deepteam.test_case.test_case import RTTurn
 
 from app.core.logging import get_logger
 from app.repositories.agent_repository import AgentRepository
@@ -13,6 +14,44 @@ from app.services.redteam.target_llm import PlatformAgentTargetLLM
 from app.services.redteam.vertex_gemini_llm import VertexGeminiJudge
 
 logger = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Category -> deepteam vulnerability mapping
+# ---------------------------------------------------------------------------
+
+# Canonical map from platform category IDs to deepteam vulnerability classes.
+# Each entry returns a *factory* callable that produces a BaseVulnerability.
+_CATEGORY_TO_VULNERABILITY: Dict[str, Any] = {}
+
+
+def _build_category_map() -> Dict[str, Any]:
+    """Lazy-import deepteam vulnerability classes and build the mapping."""
+    from deepteam.vulnerabilities import (
+        PromptLeakage,
+        Robustness,
+        PIILeakage,
+        ExcessiveAgency,
+        Toxicity,
+        Misinformation,
+    )
+
+    return {
+        "PROMPT_INJECTION": lambda: PromptLeakage(),
+        "JAILBREAK": lambda: Robustness(),
+        "PII_DIRECT": lambda: PIILeakage(types=["direct_disclosure"]),
+        "PII_API_DB": lambda: PIILeakage(types=["api_and_database_access"]),
+        "DATA_LEAKAGE": lambda: PIILeakage(types=["session_leak"]),
+        "PRIVACY": lambda: PIILeakage(types=["social_manipulation"]),
+        "EXCESSIVE_AGENCY": lambda: ExcessiveAgency(),
+        "TOXICITY": lambda: Toxicity(),
+        "HALLUCINATION": lambda: Misinformation(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Progress & cost tracking
+# ---------------------------------------------------------------------------
 
 
 class RunProgressTracker:
@@ -30,7 +69,7 @@ class RunProgressTracker:
         self.completed_attacks = 0
         self.current_vulnerability = ""
         self.status = "INITIALIZING"
-        
+
         # Cost metrics
         self.evaluator_calls = 0
         self.synthesizer_calls = 0
@@ -78,6 +117,11 @@ class RunProgressTracker:
                 await session.commit()
 
 
+# ---------------------------------------------------------------------------
+# Tracked Gemini judge (evaluator / synthesizer wrapper)
+# ---------------------------------------------------------------------------
+
+
 class TrackingGeminiJudge(DeepEvalBaseLLM):
     """Gemini judge wrapper that counts requests/tokens and estimates costs."""
 
@@ -98,10 +142,10 @@ class TrackingGeminiJudge(DeepEvalBaseLLM):
         else:
             self.tracker.synthesizer_calls += 1
             self.tracker.status = "GENERATING_ATTACKS"
-        
+
         res = self.judge.generate(prompt, *args, **kwargs)
         response_text = self._extract_text(res)
-        
+
         # Estimate token usage (1 token ~= 4 chars)
         self.tracker.token_usage += (len(prompt) + len(response_text)) // 4
         # Estimate cost (approx $0.0015 per call)
@@ -117,10 +161,10 @@ class TrackingGeminiJudge(DeepEvalBaseLLM):
         else:
             self.tracker.synthesizer_calls += 1
             self.tracker.status = "GENERATING_ATTACKS"
-        
+
         res = await self.judge.a_generate(prompt, *args, **kwargs)
         response_text = self._extract_text(res)
-        
+
         self.tracker.token_usage += (len(prompt) + len(response_text)) // 4
         self.tracker.estimated_cost = (self.tracker.evaluator_calls + self.tracker.synthesizer_calls) * 0.0015
         self.tracker.save_progress()
@@ -147,32 +191,9 @@ class TrackingGeminiJudge(DeepEvalBaseLLM):
         return str(primary)
 
 
-class TrackingTargetLLM(DeepEvalBaseLLM):
-    """Target LLM wrapper that tracks attack executions and increments progress."""
-
-    def __init__(self, target_llm: PlatformAgentTargetLLM, tracker: RunProgressTracker):
-        self.target_llm = target_llm
-        self.tracker = tracker
-        super().__init__(target_llm.get_model_name())
-
-    def load_model(self, *args, **kwargs):
-        return self.target_llm.load_model()
-
-    def generate(self, prompt: str, *args, **kwargs) -> str:
-        self.tracker.status = "RUNNING_ATTACKS"
-        self.tracker.save_progress()
-        return self.target_llm.generate(prompt)
-
-    async def a_generate(self, prompt: str, *args, **kwargs) -> str:
-        self.tracker.status = "RUNNING_ATTACKS"
-        self.tracker.save_progress()
-        return await self.target_llm.a_generate(prompt)
-
-    def get_model_name(self, *args, **kwargs) -> str:
-        return self.target_llm.get_model_name()
-
-    def get_system_prompt(self, *args, **kwargs) -> str:
-        return self.target_llm.get_system_prompt()
+# ---------------------------------------------------------------------------
+# Main DeepEval Red Teamer Service
+# ---------------------------------------------------------------------------
 
 
 class DeepEvalRedTeamerService:
@@ -192,17 +213,15 @@ class DeepEvalRedTeamerService:
         categories = list(run.categories or [])
         enhancements = config.get("attack_enhancements") or {}
 
-        # 1. Map vulnerabilities
-        vulnerability_enums = self._map_categories(categories)
-        vulnerabilities = self._resolve_vulnerability_objects(vulnerability_enums)
+        # 1. Map categories to deepteam vulnerability objects
+        vulnerabilities = self._resolve_vulnerabilities(categories)
         if not vulnerabilities:
             raise ValueError("No valid vulnerabilities mapped from categories.")
 
-        # 2. Map enhancements
-        attack_enhancement_enums = self._map_attacks(enhancements)
-        attacks = self._resolve_attack_objects(attack_enhancement_enums, enhancements)
+        # 2. Map attack enhancements
+        attacks = self._resolve_attacks(enhancements)
 
-        # 3. Setup agent target LLM
+        # 3. Setup agent target LLM (used to build the callback)
         agent = await self._agent_repo.get_agent(run.agent_id)
         if not agent:
             raise ValueError(f"Agent {run.agent_id} not found")
@@ -225,7 +244,7 @@ class DeepEvalRedTeamerService:
             sum(len(vulnerability.get_types()) for vulnerability in vulnerabilities)
             * attacks_per_vuln
         )
-        
+
         tracker = RunProgressTracker(
             run_id=run.id,
             total_attacks=total_attacks,
@@ -234,11 +253,10 @@ class DeepEvalRedTeamerService:
         )
         tracker.set_current_vulnerability(",".join(categories))
 
-        # 5. Initialize tracked models
+        # 5. Initialize tracked models (judge / synthesizer)
         judge_model_name = run.judge_model or "gemini-2.5-pro"
         evaluator_model = TrackingGeminiJudge(judge_model_name, tracker, is_evaluator=True)
         synthesizer_model = TrackingGeminiJudge(judge_model_name, tracker, is_evaluator=False)
-        tracked_target = TrackingTargetLLM(target_llm, tracker)
 
         await self._repo.update_run(
             run,
@@ -258,20 +276,34 @@ class DeepEvalRedTeamerService:
         await self._session.commit()
         tracker.update_status("INITIALIZING")
 
-        # 6. Initialize DeepEval RedTeamer
+        # 6. Build model_callback matching deepteam's expected signature:
+        #    (input: str, history: Optional[List[RTTurn]]) -> RTTurn
+        def model_callback(
+            input_text: str,
+            history: Optional[List[RTTurn]] = None,
+        ) -> RTTurn:
+            tracker.status = "RUNNING_ATTACKS"
+            tracker.save_progress()
+            response_text = target_llm.generate(input_text)
+            return RTTurn(role="assistant", content=response_text or "")
+
+        # 7. Initialize deepteam RedTeamer
+        #    NOTE: async_mode=False is critical because this runs inside
+        #    asyncio.to_thread() — deepteam's async_mode=True would try
+        #    loop.run_until_complete() which fails in an existing loop.
         red_teamer = RedTeamer(
             simulator_model=synthesizer_model,
             evaluation_model=evaluator_model,
             target_purpose=target_purpose,
-            async_mode=True,
+            async_mode=False,
         )
 
-        # 7. Execute scan
+        # 8. Execute scan in a background thread
         tracker.update_status("GENERATING_ATTACKS")
-        
-        def _run_deepeval_scan():
+
+        def _run_deepteam_scan():
             return red_teamer.red_team(
-                model_callback=tracked_target,
+                model_callback=model_callback,
                 vulnerabilities=vulnerabilities,
                 attacks=attacks if attacks else None,
                 attacks_per_vulnerability_type=attacks_per_vuln,
@@ -280,19 +312,38 @@ class DeepEvalRedTeamerService:
                 _upload_to_confident=False,
             )
 
-        logger.info("Starting DeepEval native red team scan for run %s", run.id)
-        assessment = await asyncio.to_thread(_run_deepeval_scan)
-        
+        logger.info("Starting DeepTeam native red team scan for run %s", run.id)
+        risk_assessment = await asyncio.to_thread(_run_deepteam_scan)
+
         tracker.update_status("AGGREGATING_RESULTS")
 
-        # 8. Save and normalize results
+        # 9. Save and normalize results
         passed = failed = uncertain = 0
         errored = 0
         executed_attacks = 0
         vulnerability_scores = {}
         result_rows = []
 
-        test_cases = getattr(assessment, "test_cases", []) or []
+        # The risk_assessment may be a RiskAssessment object or the RedTeamer
+        # stores results in red_teamer.risk_assessment / red_teamer.simulated_test_cases.
+        test_cases = []
+        if hasattr(risk_assessment, "test_cases"):
+            test_cases = risk_assessment.test_cases or []
+        elif hasattr(red_teamer, "risk_assessment") and red_teamer.risk_assessment:
+            ra = red_teamer.risk_assessment
+            if hasattr(ra, "test_cases"):
+                test_cases = ra.test_cases or []
+
+        # Fallback: check simulated_test_cases on the RedTeamer itself
+        if not test_cases and hasattr(red_teamer, "simulated_test_cases"):
+            test_cases = red_teamer.simulated_test_cases or []
+
+        logger.info(
+            "DeepTeam scan produced %d test cases for run %s",
+            len(test_cases),
+            run.id,
+        )
+
         for case in test_cases:
             case_error = getattr(case, "error", None)
             safe_score = float(case.score) if case.score is not None else None
@@ -302,15 +353,18 @@ class DeepEvalRedTeamerService:
                 else None
             )
 
+            # Extract prompt (input field or first turn)
             prompt_val = getattr(case, "input", None)
             if not prompt_val and getattr(case, "turns", None):
-                prompt_val = case.turns[0].input if case.turns else None
+                prompt_val = case.turns[0].content if case.turns else None
             if not prompt_val:
                 prompt_val = "[No prompt generated]"
 
+            # Extract response (actual_output or last turn)
             response_val = getattr(case, "actual_output", None)
             if not response_val and getattr(case, "turns", None):
-                response_val = case.turns[-1].actual_output if case.turns else None
+                last_assistant = [t for t in (case.turns or []) if t.role == "assistant"]
+                response_val = last_assistant[-1].content if last_assistant else None
             if response_val:
                 executed_attacks += 1
 
@@ -335,29 +389,31 @@ class DeepEvalRedTeamerService:
                 vulnerability_scores[vuln_cat].append(vulnerability_score)
 
             # Metadata properties
-            enhancement_used = case.attack_method or "None"
+            enhancement_used = getattr(case, "attack_method", None) or "None"
             comp_time = getattr(case, "completion_time", None)
             latency_ms = int(comp_time * 1000) if comp_time is not None else None
 
             if not response_val:
                 response_val = ""
 
+            risk_cat = getattr(case, "risk_category", None) or "medium"
+
             # Add result to repository
             row = await self._repo.add_result(
                 run_id=run.id,
                 test_case_id=None,
                 category=vuln_cat,
-                severity=case.risk_category or "medium",
+                severity=risk_cat,
                 prompt=prompt_val,
                 response=response_val,
                 classification=classification,
                 score=vulnerability_score,
-                reason=case.reason or case_error or "No reason provided",
+                reason=getattr(case, "reason", None) or case_error or "No reason provided",
                 trace_id=f"rt-{run.id.hex[:8]}-{uuid.uuid4().hex[:8]}",
                 latency_ms=latency_ms,
                 metadata={
                     "enhancement_used": enhancement_used,
-                    "semantic_reasoning": case.reason,
+                    "semantic_reasoning": getattr(case, "reason", None),
                     "confidence_score": vulnerability_score,
                     "safe_score": safe_score,
                     "raw_deepeval_score": safe_score,
@@ -419,12 +475,12 @@ class DeepEvalRedTeamerService:
         if test_cases and executed_attacks == 0:
             final_status = "failed"
             error_message = (
-                "DeepEval generated test cases but none were executed against the target model. "
+                "DeepTeam generated test cases but none were executed against the target model. "
                 "Review enhancement/simulation errors in the run results."
             )
         elif not test_cases:
             final_status = "failed"
-            error_message = "DeepEval produced no test cases for the selected vulnerabilities."
+            error_message = "DeepTeam produced no test cases for the selected vulnerabilities."
 
         await self._repo.update_run(
             run,
@@ -448,85 +504,64 @@ class DeepEvalRedTeamerService:
             mark_completed=True,
         )
         await self._session.commit()
-        logger.info("DeepEval native red team scan completed for run %s", run.id)
+        logger.info("DeepTeam native red team scan completed for run %s", run.id)
 
-    def _map_categories(self, categories: List[str]) -> List[Vulnerability]:
-        mapped = []
+    # ------------------------------------------------------------------
+    # Category -> vulnerability object resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_vulnerabilities(self, categories: List[str]) -> List[Any]:
+        """Map platform category strings directly to deepteam vulnerability objects."""
+        global _CATEGORY_TO_VULNERABILITY
+        if not _CATEGORY_TO_VULNERABILITY:
+            _CATEGORY_TO_VULNERABILITY = _build_category_map()
+
+        resolved = []
         for cat in categories:
             val = cat.value if hasattr(cat, "value") else cat
-            try:
-                mapped.append(Vulnerability[val])
-            except KeyError:
-                logger.warning("Unsupported DeepEval vulnerability category: %s", val)
-        return mapped
-
-    def _resolve_vulnerability_objects(self, vulnerabilities: List[Vulnerability]) -> List[Any]:
-        from deepteam.vulnerabilities import (
-            PromptLeakage,
-            Robustness,
-            PIILeakage,
-            ExcessiveAgency,
-            Toxicity,
-            Misinformation,
-        )
-        resolved = []
-        for vulnerability in vulnerabilities:
-            if vulnerability == Vulnerability.PROMPT_INJECTION:
-                resolved.append(PromptLeakage())
-            elif vulnerability == Vulnerability.JAILBREAK:
-                resolved.append(Robustness())
-            elif vulnerability == Vulnerability.PII_DIRECT:
-                resolved.append(PIILeakage(types=["direct_disclosure"]))
-            elif vulnerability == Vulnerability.PII_API_DB:
-                resolved.append(PIILeakage(types=["api_and_database_access"]))
-            elif vulnerability == Vulnerability.DATA_LEAKAGE:
-                resolved.append(PIILeakage(types=["session_leak"]))
-            elif vulnerability == Vulnerability.PRIVACY:
-                resolved.append(PIILeakage(types=["social_manipulation"]))
-            elif vulnerability == Vulnerability.EXCESSIVE_AGENCY:
-                resolved.append(ExcessiveAgency())
-            elif vulnerability == Vulnerability.TOXICITY:
-                resolved.append(Toxicity())
-            elif vulnerability == Vulnerability.HALLUCINATION:
-                resolved.append(Misinformation())
+            factory = _CATEGORY_TO_VULNERABILITY.get(val)
+            if factory:
+                resolved.append(factory())
+            else:
+                logger.warning("Unsupported DeepTeam vulnerability category: %s", val)
         return resolved
 
-    def _map_attacks(self, enhancements_dict: Dict[str, float]) -> List[AttackEnhancement]:
-        mapped = []
-        for name in (enhancements_dict or {}).keys():
-            try:
-                mapped.append(AttackEnhancement[name])
-            except KeyError:
-                logger.warning("Unsupported DeepEval attack enhancement: %s", name)
-        return mapped
+    # ------------------------------------------------------------------
+    # Attack enhancement resolution
+    # ------------------------------------------------------------------
 
-    def _resolve_attack_objects(
-        self,
-        enhancements: List[AttackEnhancement],
-        weights: Dict[str, float],
-    ) -> List[Any]:
+    def _resolve_attacks(self, enhancements_dict: Dict[str, float]) -> List[Any]:
+        """Map enhancement names to deepteam attack objects."""
         from deepteam.attacks.single_turn import Base64, GrayBox, Multilingual
         from deepteam.attacks.multi_turn import CrescendoJailbreaking
+
+        _ATTACK_MAP = {
+            "BASE64": lambda w: Base64(weight=w),
+            "MULTILINGUAL": lambda w: Multilingual(weight=w),
+            "GRAY_BOX_ATTACK": lambda w: GrayBox(weight=w),
+            "JAILBREAK_CRESCENDO": lambda w: CrescendoJailbreaking(weight=w),
+        }
+
         attacks = []
-        for enhancement in enhancements:
-            weight = weights.get(enhancement.name, 0.0)
-            wt = max(1, int(weight * 100)) if weight else 1
-            if enhancement == AttackEnhancement.BASE64:
-                attacks.append(Base64(weight=wt))
-            elif enhancement == AttackEnhancement.MULTILINGUAL:
-                attacks.append(Multilingual(weight=wt))
-            elif enhancement == AttackEnhancement.GRAY_BOX_ATTACK:
-                attacks.append(GrayBox(weight=wt))
-            elif enhancement == AttackEnhancement.JAILBREAK_CRESCENDO:
-                attacks.append(CrescendoJailbreaking(weight=wt))
+        for name, weight in (enhancements_dict or {}).items():
+            factory = _ATTACK_MAP.get(name)
+            if factory:
+                wt = max(1, int(weight * 100)) if weight else 1
+                attacks.append(factory(wt))
+            else:
+                logger.warning("Unsupported DeepTeam attack enhancement: %s", name)
         return attacks
+
+    # ------------------------------------------------------------------
+    # Reverse-map vulnerability type -> platform category
+    # ------------------------------------------------------------------
 
     def _map_vulnerability_type_to_category(self, v_type: Any) -> str:
         if not v_type:
             return "TOXICITY"
         val = getattr(v_type, "value", str(v_type))
         name = getattr(v_type, "name", "")
-        
+
         # PII direct
         if val == "direct_disclosure" or "direct" in name.lower():
             return "PII_DIRECT"
@@ -554,5 +589,5 @@ class DeepEvalRedTeamerService:
         # Hallucination / Misinformation
         if "misinformation" in str(type(v_type)).lower() or "misinformation" in name.lower() or "factual" in name.lower() or "claim" in name.lower():
             return "HALLUCINATION"
-        
+
         return "TOXICITY"
