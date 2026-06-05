@@ -25,7 +25,7 @@ VULNERABILITY_CATALOG: list[dict[str, Any]] = [
         "category": "Data Privacy",
         "description": "Tests whether the LLM leaks personally identifiable information.",
         "sub_types": [
-            "direct", "session_leak", "social_engineering",
+            "direct_disclosure", "session_leak", "social_manipulation",
             "api_and_database_access",
         ],
     },
@@ -42,14 +42,14 @@ VULNERABILITY_CATALOG: list[dict[str, Any]] = [
         "label": "Bias",
         "category": "Responsible AI",
         "description": "Tests whether the LLM exhibits biased behavior.",
-        "sub_types": ["race", "gender", "religion", "politics", "age", "nationality", "disability", "socioeconomic"],
+        "sub_types": ["race", "gender", "religion", "politics"],
     },
     {
         "id": "Toxicity",
         "label": "Toxicity",
         "category": "Responsible AI",
         "description": "Tests whether the LLM generates toxic or harmful content.",
-        "sub_types": ["insult", "threat", "profanity", "mockery", "dismissive"],
+        "sub_types": ["insults", "threats", "profanity", "mockery"],
     },
     {
         "id": "Fairness",
@@ -208,7 +208,7 @@ ATTACK_CATALOG: list[dict[str, Any]] = [
         "description": "Encodes adversarial payloads in Base64 to bypass filters.",
     },
     {
-        "id": "GrayBoxAttack",
+        "id": "GrayBox",
         "label": "Gray Box Attack",
         "type": "single_turn",
         "description": "Uses partial knowledge of the system to craft targeted attacks.",
@@ -226,7 +226,7 @@ ATTACK_CATALOG: list[dict[str, Any]] = [
         "description": "Uses non-English languages to bypass safety guardrails.",
     },
     {
-        "id": "RotThirteen",
+        "id": "ROT13",
         "label": "ROT13",
         "type": "single_turn",
         "description": "Applies ROT13 cipher to evade detection.",
@@ -239,8 +239,8 @@ ATTACK_CATALOG: list[dict[str, Any]] = [
         "description": "Gradually escalates a conversation to extract harmful outputs.",
     },
     {
-        "id": "LinearProbing",
-        "label": "Linear Probing",
+        "id": "LinearJailbreaking",
+        "label": "Linear Jailbreaking",
         "type": "multi_turn",
         "description": "Systematically tests boundaries through sequential probes.",
     },

@@ -458,6 +458,18 @@ export default function RedTeamScan() {
                       onChange={(e) => setTargetSystemPrompt(e.target.value)}
                     />
                   </div>
+                  {agentMeta?.a2a_card && (
+                    <div className="mt-3">
+                      <details className="text-[12px] bg-gray-50 border border-gray-200 rounded-md p-2">
+                        <summary className="font-semibold text-gray-700 cursor-pointer select-none">
+                          View Fetched A2A Card Details
+                        </summary>
+                        <pre className="mt-2 text-[10px] text-gray-600 overflow-x-auto bg-white p-2 rounded border border-gray-100 max-h-48 font-mono">
+                          {JSON.stringify(agentMeta.a2a_card, null, 2)}
+                        </pre>
+                      </details>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -628,28 +640,87 @@ export default function RedTeamScan() {
                           />
                         </div>
                         {catExpanded && (
-                          <div className="border-t px-3 py-2 space-y-1" style={{ borderColor: '#E5E7EB' }}>
-                            {vulns.map((v) => (
-                              <label key={v.id} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-gray-50 rounded px-1">
-                                <input
-                                  type="checkbox"
-                                  className="mt-0.5"
-                                  checked={selectedVulns.has(v.id)}
-                                  onChange={() => {
-                                    setSelectedVulns((prev) => {
-                                      const next = new Set(prev)
-                                      if (next.has(v.id)) next.delete(v.id)
-                                      else next.add(v.id)
-                                      return next
-                                    })
-                                  }}
-                                />
-                                <div className="flex-1">
-                                  <span className="font-medium text-gray-900">{v.label}</span>
-                                  <span className="block text-[11px] text-gray-500">{v.description}</span>
+                          <div className="border-t px-3 py-2 space-y-0" style={{ borderColor: '#E5E7EB' }}>
+                            {vulns.map((v) => {
+                              const isSelected = selectedVulns.has(v.id)
+                              const hasSubTypes = v.sub_types && v.sub_types.length > 0
+                              const activeSubTypes = vulnSubTypes[v.id] || []
+                              return (
+                                <div key={v.id}>
+                                  <label className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-gray-50 rounded px-1">
+                                    <input
+                                      type="checkbox"
+                                      className="mt-0.5"
+                                      checked={isSelected}
+                                      onChange={() => {
+                                        setSelectedVulns((prev) => {
+                                          const next = new Set(prev)
+                                          if (next.has(v.id)) next.delete(v.id)
+                                          else next.add(v.id)
+                                          return next
+                                        })
+                                        // Clear sub-type selection when deselecting
+                                        if (isSelected) {
+                                          setVulnSubTypes((prev) => {
+                                            const next = { ...prev }
+                                            delete next[v.id]
+                                            return next
+                                          })
+                                        }
+                                      }}
+                                    />
+                                    <div className="flex-1">
+                                      <span className="font-medium text-gray-900">{v.label}</span>
+                                      <span className="block text-[11px] text-gray-500">{v.description}</span>
+                                    </div>
+                                  </label>
+                                  {/* Sub-type pill toggles */}
+                                  {isSelected && hasSubTypes && (
+                                    <div className="ml-7 mb-2 mt-0.5">
+                                      <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">
+                                        Sub-types ({activeSubTypes.length > 0 ? `${activeSubTypes.length} selected` : 'none — all tested'})
+                                      </span>
+                                      <div className="flex flex-wrap gap-1.5 mt-1">
+                                        {v.sub_types.map((st) => {
+                                          const isActive = activeSubTypes.includes(st)
+                                          return (
+                                            <button
+                                              key={st}
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                setVulnSubTypes((prev) => {
+                                                  const current = prev[v.id] || []
+                                                  const updated = isActive
+                                                    ? current.filter((s) => s !== st)
+                                                    : [...current, st]
+                                                  return { ...prev, [v.id]: updated }
+                                                })
+                                              }}
+                                              className="transition-all duration-150"
+                                              style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                padding: '3px 10px',
+                                                borderRadius: '999px',
+                                                fontSize: '11px',
+                                                fontWeight: 500,
+                                                cursor: 'pointer',
+                                                border: isActive ? '1.5px solid #6366F1' : '1px solid #D1D5DB',
+                                                background: isActive ? '#6366F1' : '#FFFFFF',
+                                                color: isActive ? '#FFFFFF' : '#4B5563',
+                                              }}
+                                            >
+                                              {st}
+                                            </button>
+                                          )
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
-                              </label>
-                            ))}
+                              )
+                            })}
                           </div>
                         )}
                       </div>

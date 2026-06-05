@@ -51,6 +51,22 @@ export default function RedTeamRunResults() {
     return acc
   }, {})
 
+  // Normalise: run.categories may use class-names (e.g. "ExcessiveAgency")
+  // while result.category uses display names (e.g. "Excessive Agency").
+  // Build a lookup so the progress pills can match either form.
+  const getCategoryCount = (cat) => {
+    if (categoryProgress[cat]) return categoryProgress[cat]
+    // Try matching with spaces inserted before uppercase letters
+    const spaced = cat.replace(/([a-z])([A-Z])/g, '$1 $2')
+    if (categoryProgress[spaced]) return categoryProgress[spaced]
+    // Try matching result categories stripped of spaces
+    const stripped = cat.replace(/\s+/g, '')
+    for (const [k, v] of Object.entries(categoryProgress)) {
+      if (k.replace(/\s+/g, '') === stripped) return v
+    }
+    return 0
+  }
+
   return (
     <div>
       <PageHeader
@@ -70,7 +86,7 @@ export default function RedTeamRunResults() {
               key={cat}
               className="text-[11px] px-2 py-1 rounded-md bg-gray-100 text-gray-700"
             >
-              {categoryLabel(cat)}: {categoryProgress[cat] || 0} done
+              {categoryLabel(cat)}: {getCategoryCount(cat)} done
             </span>
           ))}
         </div>
@@ -112,6 +128,7 @@ export default function RedTeamRunResults() {
           <Table>
             <THead>
               <Th>Category</Th>
+              <Th>Attack Method</Th>
               <Th>Result</Th>
               <Th>Severity</Th>
               <Th>Trace</Th>
@@ -121,6 +138,11 @@ export default function RedTeamRunResults() {
               {items.map((r) => (
                 <TRow key={r.id}>
                   <Td>{r.category}</Td>
+                  <Td>
+                    <span className="text-[11px] text-gray-600">
+                      {r.metadata?.attack_method || '—'}
+                    </span>
+                  </Td>
                   <Td>
                     <Badge variant={classificationVariant(r.classification)}>
                       {r.classification}
