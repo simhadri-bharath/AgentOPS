@@ -147,6 +147,7 @@ class EvaluationRunner:
                 references:               list[Any] = []
                 predicted_trajectories:   list[Any] = []
                 reference_trajectories:   list[Any] = []
+                intermediate_events_list: list[Any] = []
 
                 def _extract_field(raw: Any, fields: list[str]) -> Any:
                     if raw is None:
@@ -250,6 +251,9 @@ class EvaluationRunner:
 
                     ref = row.get("reference") or row.get("expected_output")
                     references.append(ref or "")
+                    raw_row = invoke.raw if invoke else None
+                    ie = _extract_field(raw_row, ["intermediate_events"])
+                    intermediate_events_list.append(ie if ie is not None else "")
 
                 # ── Build DataFrame ───────────────────────────────────────────
                 eval_df_data: dict[str, Any] = {
@@ -341,6 +345,9 @@ class EvaluationRunner:
                     }
                     if any(r for r in references):
                         managed_df_data["reference"] = references
+
+                    if any(ie for ie in intermediate_events_list):
+                        managed_df_data["intermediate_events"] = intermediate_events_list
 
                     managed_df = pd.DataFrame(managed_df_data)
 
