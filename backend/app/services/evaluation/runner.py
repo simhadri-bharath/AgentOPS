@@ -185,7 +185,64 @@ class EvaluationRunner:
                         raw_row,
                         ["predicted_trajectory", "agent_trajectory", "trajectory"]
                     )
+
+                    # Fallback: extract agent calls from agent_data turns
+                    if pred_traj is None and raw_row is not None:
+                        import json
+                        agent_data_raw = None
+                        if isinstance(raw_row, pd.Series):
+                            agent_data_raw = raw_row.get("agent_data")
+                        elif isinstance(raw_row, dict):
+                            agent_data_raw = raw_row.get("agent_data")
+
+                        if agent_data_raw:
+                            try:
+                                agent_data = (
+                                    json.loads(agent_data_raw)
+                                    if isinstance(agent_data_raw, str)
+                                    else agent_data_raw
+                                )
+                                tool_calls = []
+                                seen_authors: set[str] = set()
+                                turns = agent_data.get("turns") or []
+                                for turn in turns:
+                                    events = turn.get("events") or []
+                                    for event in events:
+                                        if not isinstance(event, dict):
+                                            continue
+                                        author = event.get("author", "").strip()
+                                        if not author or author in seen_authors:
+                                            continue
+                                        # Extract text input from content parts
+                                        parts = event.get("content", {}).get("parts", []) or []
+                                        input_text = ""
+                                        for part in parts:
+                                            if isinstance(part, dict) and part.get("text"):
+                                                input_text = part["text"][:200]
+                                                break
+                                        tool_calls.append({
+                                            "tool_name": author,
+                                            "tool_input": {"request": input_text} if input_text else {},
+                                        })
+                                        seen_authors.add(author)
+                                if tool_calls:
+                                    pred_traj = tool_calls
+                                    logger.info(
+                                        "Extracted %d agent calls from agent_data for row %d: %s",
+                                        len(tool_calls), idx,
+                                        [t["tool_name"] for t in tool_calls],
+                                        extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
+                                    )
+                            except Exception as e:
+                                logger.warning(
+                                    "Failed to extract trajectory from agent_data for row %d: %s",
+                                    idx, e,
+                                    extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
+                                )
+
                     predicted_trajectories.append(pred_traj)
+
+                    
 
                     # reference_trajectory comes from the dataset row
                     ref_traj = row.get("reference_trajectory")
@@ -208,11 +265,7 @@ class EvaluationRunner:
 
                 eval_df = pd.DataFrame(eval_df_data)
 
-                logger.info(
-                    "Vertex eval DataFrame columns: %s rows: %s",
-                    list(eval_df.columns), len(eval_df),
-                    extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-                )
+                
 
                 # ── PART A: Trajectory metrics via EvalTask ───────────────────
                 if selected_trajectory_metrics:
@@ -224,11 +277,7 @@ class EvaluationRunner:
                             traj_eval_metrics.append(mapped)
                             seen_traj.add(mapped)
 
-                    logger.info(
-                        "Running EvalTask trajectory metrics: %s",
-                        selected_trajectory_metrics,
-                        extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-                    )
+                   
 
                     traj_eval_task = EvalTask(
                         dataset=eval_df,
@@ -237,6 +286,7 @@ class EvaluationRunner:
                     )
                     traj_result = await asyncio.to_thread(traj_eval_task.evaluate)
                     traj_table  = traj_result.metrics_table
+
 
                     for idx in range(len(traj_table)):
                         result_row = traj_table.iloc[idx]
@@ -257,68 +307,51 @@ class EvaluationRunner:
                                 ):
                                     row_scores[m] = float(val)
 
-                    logger.info(
-                        "EvalTask trajectory done. columns: %s",
-                        list(traj_table.columns),
-                        extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-                    )
+                    
 
-                # ── PART B: Managed metrics via client.evals.evaluate (no GCS) ─
+                # ── PART B: Managed metrics via client.evals.evaluate ─────────
                 if selected_managed_metrics:
 
-                    # Build Metric list using publishers/google resource names
-                    gcp_metrics = [
-                        vertex_types.Metric(
-                            name=m,
-                            metric_resource_name=MANAGED_METRIC_MAP[m],
-                        )
-                        for m in selected_managed_metrics
-                        if m in MANAGED_METRIC_MAP
-                    ]
+                    # Map UI metric names → types.RubricMetric constants
+                    RUBRIC_METRIC_MAP = {
+                        "final_response_quality":              vertex_types.RubricMetric.FINAL_RESPONSE_QUALITY,
+                        "hallucination":                       vertex_types.RubricMetric.HALLUCINATION,
+                        "tool_use_quality":                    vertex_types.RubricMetric.TOOL_USE_QUALITY,
+                        "safety":                              vertex_types.RubricMetric.SAFETY,
+                        "final_response_match":                vertex_types.RubricMetric.FINAL_RESPONSE_MATCH,
+                        "final_response_ref_free":             vertex_types.RubricMetric.FINAL_RESPONSE_REFERENCE_FREE,
+                        "agent_multi_turn_task_success":       vertex_types.RubricMetric.MULTI_TURN_TASK_SUCCESS,
+                        "agent_multi_turn_tool_use_quality":   vertex_types.RubricMetric.MULTI_TURN_TOOL_USE_QUALITY,
+                        "agent_multi_turn_trajectory_quality": vertex_types.RubricMetric.MULTI_TURN_TRAJECTORY_QUALITY,
+                    }
 
-                    # Helper to wrap plain text into Content
-                    def _make_content(text: str) -> genai_types.Content:
-                        return genai_types.Content(
-                            parts=[genai_types.Part(text=text or "")]
-                        )
+                    # Build rubric metrics list — deduplicated
+                    rubric_metrics = []
+                    seen_rubric: set[str] = set()
+                    for m in selected_managed_metrics:
+                        rubric = RUBRIC_METRIC_MAP.get(m)
+                        if rubric and m not in seen_rubric:
+                            rubric_metrics.append(rubric)
+                            seen_rubric.add(m)
 
-                    # Build EvalCase list from pre-computed invoke_results
-                    eval_cases: list[vertex_types.EvalCase] = []
-                    for idx, row in enumerate(validated.rows):
-                        case_kwargs: dict[str, Any] = {
-                            "eval_case_id": str(idx),
-                            "prompt": _make_content(prompts[idx]),
-                            "responses": [
-                                vertex_types.ResponseCandidate(
-                                    response=_make_content(responses[idx])
-                                )
-                            ],
-                        }
-                        # Add reference if present for final_response_match
-                        ref = references[idx] if references and references[idx] else None
-                        if ref:
-                            case_kwargs["reference"] = vertex_types.ResponseCandidate(
-                                response=_make_content(ref)
-                            )
-                        eval_cases.append(vertex_types.EvalCase(**case_kwargs))
+                    # Build DataFrame with prompt + response + optional reference
+                    managed_df_data: dict[str, Any] = {
+                        "prompt":   prompts,
+                        "response": responses,
+                    }
+                    if any(r for r in references):
+                        managed_df_data["reference"] = references
 
-                    eval_dataset = vertex_types.EvaluationDataset(
-                        eval_cases=eval_cases
-                    )
+                    managed_df = pd.DataFrame(managed_df_data)
 
-                    logger.info(
-                        "Running managed metrics via client.evals.evaluate: %s  cases=%d",
-                        selected_managed_metrics,
-                        len(eval_cases),
-                        extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-                    )
+                    
 
                     vertex_client = VertexClient(project=project_id, location=region)
 
                     eval_result = await asyncio.to_thread(
                         vertex_client.evals.evaluate,
-                        dataset=eval_dataset,
-                        metrics=gcp_metrics,
+                        dataset=vertex_types.EvaluationDataset(eval_dataset_df=managed_df),
+                        metrics=rubric_metrics,
                     )
 
                     # Parse per-row scores into managed_scores_by_index
@@ -331,18 +364,48 @@ class EvaluationRunner:
                         for metric_key, metric_result in (
                             candidates[0].metric_results or {}
                         ).items():
-                            # Strip version suffix: "hallucination_v1" → "hallucination"
                             norm = re.sub(r"_v\d+$", "", metric_key.lower())
+
+                            # Store error if metric failed
+                            error_msg = getattr(metric_result, "error_message", None)
+                            if error_msg:
+                                row_scores[f"{norm}_error"] = error_msg
+                                logger.warning(
+                                    "Metric %s failed for case %s: %s",
+                                    norm, case_idx, error_msg,
+                                    extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
+                                )
+                                continue
+
+                            # Store scalar score
                             if metric_result.score is not None:
                                 row_scores[norm] = metric_result.score
-                            if metric_result.explanation:
+
+                            # Store explanation
+                            if getattr(metric_result, "explanation", None):
                                 row_scores[f"{norm}_explanation"] = metric_result.explanation
 
-                    logger.info(
-                        "client.evals.evaluate completed. cases=%d",
-                        len(eval_result.eval_case_results or []),
-                        extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-                    )
+                            # Store rubric verdicts
+                            rubric_verdicts = getattr(metric_result, "rubric_verdicts", None) or []
+                            if rubric_verdicts:
+                                verdicts_list = []
+                                for rv in rubric_verdicts:
+                                    verdict_dict: dict[str, Any] = {}
+                                    verdict_val = getattr(rv, "verdict", None)
+                                    if verdict_val is not None:
+                                        verdict_dict["verdict"] = "Pass" if verdict_val else "Fail"
+                                    reasoning = getattr(rv, "reasoning", None)
+                                    if reasoning:
+                                        verdict_dict["reasoning"] = reasoning
+                                    evaluated_rubric = getattr(rv, "evaluated_rubric", None)
+                                    if evaluated_rubric:
+                                        criteria = getattr(evaluated_rubric, "criteria", None)
+                                        if criteria:
+                                            verdict_dict["criteria"] = criteria
+                                    verdicts_list.append(verdict_dict)
+                                row_scores[f"{norm}_rubric_verdicts"] = verdicts_list
+
+                    
 
             # ── Per-sample scoring and DB save ────────────────────────────────
             all_score_rows: list[dict[str, Any]] = []

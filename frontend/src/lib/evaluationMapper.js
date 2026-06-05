@@ -68,6 +68,7 @@ export function formatLatencyMs(ms) {
 }
 
 const SCORE_META_KEYS = new Set(['invocation_error', 'actual_output_nonempty'])
+const HIDDEN_EXPLANATION_METRICS = new Set(['hallucination'])
 
 /** Split evaluation_results.scores JSON into displayable metrics and explanations. */
 export function partitionSampleScores(scores = {}) {
@@ -75,7 +76,10 @@ export function partitionSampleScores(scores = {}) {
   const explanations = {}
   for (const [key, value] of Object.entries(scores || {})) {
     if (key.endsWith('_explanation')) {
-      explanations[key.replace(/_explanation$/, '')] = value
+      const metricKey = key.replace(/_explanation$/, '')
+      if (!HIDDEN_EXPLANATION_METRICS.has(metricKey)) {
+        explanations[metricKey] = value
+      }
       continue
     }
     if (SCORE_META_KEYS.has(key)) continue

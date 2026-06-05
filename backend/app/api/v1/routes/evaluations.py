@@ -25,9 +25,14 @@ from app.schemas.evaluation import (
     evaluation_run_from_orm,
     resolve_executable_metrics,
     VERTEX_MANAGED_METRICS,
+    TRAJECTORY_METRICS,
 )
 from app.services.datasets.parser import parse_dataset_file
 from app.tasks.evaluation_tasks import run_evaluation_background
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 router = APIRouter(prefix="/evaluations", tags=["evaluations"])
 
@@ -48,7 +53,7 @@ def _validate_framework_metrics(framework: str, metrics: list[str]) -> None:
             detail=f"Unsupported framework: {framework}. Supported: {FRAMEWORKS}",
         )
     normalized = "vertex" if framework == "vertex_ai" else framework
-    allowed = set(FRAMEWORK_METRICS.get(normalized, []))
+    allowed = set(FRAMEWORK_METRICS.get(normalized, [])) 
     invalid = [m for m in metrics if m not in allowed]
     if invalid:
         raise HTTPException(
@@ -80,16 +85,33 @@ async def _prepare_metrics_for_dataset(
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     executable = resolve_executable_metrics(framework, metrics)
+
+    logger.info("_prepare_metrics_for_dataset: input metrics=%s executable=%s", metrics, executable)
+
     try:
         validated = parse_dataset_file(dataset.file_path)
         has_expected = any((r.get("expected_output") or "").strip() for r in validated.rows)
+
+        logger.info("_prepare_metrics_for_dataset: has_expected=%s", has_expected)
+
         if not has_expected:
-            managed = [m for m in executable if m in VERTEX_MANAGED_METRICS]
-            local_only = [m for m in executable if m not in VERTEX_MANAGED_METRICS]
+            managed   = [m for m in executable if m in VERTEX_MANAGED_METRICS]
+            trajectory = [m for m in executable if m in TRAJECTORY_METRICS]
+            local_only = [m for m in executable if m not in managed and m not in trajectory]
+
+            logger.info(
+                "_prepare_metrics_for_dataset: managed=%s trajectory=%s local_only=%s",
+                managed, trajectory, local_only,
+            )
+
             if set(local_only) <= {"exact_match", "contains_expected"}:
-                executable = managed + list(DEFAULT_PROMPT_ONLY_METRICS)
+                executable = managed + trajectory + list(DEFAULT_PROMPT_ONLY_METRICS)
+
     except Exception:
         pass
+
+    logger.info("_prepare_metrics_for_dataset: final executable=%s", executable)
+
     return executable
 
 

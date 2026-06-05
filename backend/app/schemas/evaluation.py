@@ -77,11 +77,6 @@ FRAMEWORK_METRIC_EXECUTION_MAP: dict[str, str] = {
     "toxicity": "response_nonempty",
 
     # New Metric Maps to executable stubs
-    "agent_trajectory_exact_match": "exact_match",
-    "agent_trajectory_in_order_match": "exact_match",
-    "agent_trajectory_any_order_match": "exact_match",
-    "agent_trajectory_precision": "contains_expected",
-    "agent_trajectory_recall": "contains_expected",
     "agent_multi_turn_task_success": "exact_match",
     "agent_multi_turn_tool_use_quality": "contains_expected",
     "agent_multi_turn_trajectory_quality": "contains_expected",
@@ -179,8 +174,20 @@ VERTEX_MANAGED_METRICS = {
     "agent_multi_turn_trajectory_quality",
 }
 
+TRAJECTORY_METRICS = {
+    "trajectory_exact_match",
+    "trajectory_in_order_match",
+    "trajectory_any_order_match",
+    "trajectory_precision",
+    "trajectory_recall",
+    "agent_trajectory_exact_match",
+    "agent_trajectory_in_order_match",
+    "agent_trajectory_any_order_match",
+    "agent_trajectory_precision",
+    "agent_trajectory_recall",
+    "agent_trajectory_single_tool_use",
+}
 
-# ❌ REPLACE the entire resolve_executable_metrics function
 
 def resolve_executable_metrics(framework: str, metrics: list[str]) -> list[str]:
     """Map framework-specific metric names to executable backend metrics."""
@@ -194,8 +201,11 @@ def resolve_executable_metrics(framework: str, metrics: list[str]) -> list[str]:
 
     executable: list[str] = []
     for metric in selected:
-        # Vertex managed metrics pass through as-is — handled by google-genai SDK in runner
+        # Vertex managed metrics pass through as-is
         if metric in VERTEX_MANAGED_METRICS:
+            executable.append(metric)
+        # Trajectory metrics pass through as-is
+        elif metric in TRAJECTORY_METRICS:
             executable.append(metric)
         elif metric in SUPPORTED_METRICS:
             executable.append(metric)
