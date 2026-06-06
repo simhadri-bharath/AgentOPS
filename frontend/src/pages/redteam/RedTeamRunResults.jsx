@@ -99,11 +99,27 @@ export default function RedTeamRunResults() {
         </p>
       )} */}
 
-      <div className="grid grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-5 gap-3 mb-4">
         <StatCard label="Tests" value={`${completed}/${total || '—'}`} />
         <StatCard label="Passed" value={String(run?.passed ?? 0)} valueStyle={{ color: '#22C55E' }} />
         <StatCard label="Failed" value={String(run?.failed ?? 0)} valueStyle={{ color: '#EF4444' }} />
         <StatCard label="Uncertain" value={String(run?.uncertain ?? 0)} />
+        <StatCard
+          label="Avg Risk Score"
+          value={
+            run?.report?.avg_llm_vulnerability_score != null
+              ? `${run.report.avg_llm_vulnerability_score}/100`
+              : '—'
+          }
+          valueStyle={{
+            color:
+              (run?.report?.avg_llm_vulnerability_score ?? 0) >= 56
+                ? '#EF4444'
+                : (run?.report?.avg_llm_vulnerability_score ?? 0) >= 31
+                  ? '#F59E0B'
+                  : '#22C55E',
+          }}
+        />
       </div>
 
       {run?.report?.summary && (
@@ -131,45 +147,68 @@ export default function RedTeamRunResults() {
               <Th>Attack Method</Th>
               <Th>Result</Th>
               <Th>Severity</Th>
+              <Th>Risk Score</Th>
               <Th>Trace</Th>
               <Th></Th>
             </THead>
             <tbody>
-              {items.map((r) => (
-                <TRow key={r.id}>
-                  <Td>{r.category}</Td>
-                  <Td>
-                    <span className="text-[11px] text-gray-600">
-                      {r.metadata?.attack_method || '—'}
-                    </span>
-                  </Td>
-                  <Td>
-                    <Badge variant={classificationVariant(r.classification)}>
-                      {r.classification}
-                    </Badge>
-                  </Td>
-                  <Td>
-                    <Badge variant={severityVariant(r.severity)}>{r.severity}</Badge>
-                  </Td>
-                  <Td>
-                    {r.trace_id ? (
-                      <Link to={traceUrl(r.trace_id)} className="text-indigo-600 text-[11px]">
-                        {shortId(r.trace_id)}
+              {items.map((r) => {
+                const riskScore = r.metadata?.llm_vulnerability_score
+                return (
+                  <TRow key={r.id}>
+                    <Td>{r.category}</Td>
+                    <Td>
+                      <span className="text-[11px] text-gray-600">
+                        {r.metadata?.attack_method || '—'}
+                      </span>
+                    </Td>
+                    <Td>
+                      <Badge variant={classificationVariant(r.classification)}>
+                        {r.classification}
+                      </Badge>
+                    </Td>
+                    <Td>
+                      <Badge variant={severityVariant(r.severity)}>{r.severity}</Badge>
+                    </Td>
+                    <Td>
+                      {riskScore != null ? (
+                        <span
+                          className="text-[12px] font-mono font-semibold"
+                          style={{
+                            color:
+                              riskScore >= 81 ? '#dc2626'
+                                : riskScore >= 56 ? '#ef4444'
+                                  : riskScore >= 31 ? '#f59e0b'
+                                    : riskScore >= 11 ? '#3b82f6'
+                                      : '#22c55e',
+                          }}
+                        >
+                          {riskScore}/100
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-gray-400">—</span>
+                      )}
+                    </Td>
+                    <Td>
+                      {r.trace_id ? (
+                        <Link to={traceUrl(r.trace_id)} className="text-indigo-600 text-[11px]">
+                          {shortId(r.trace_id)}
+                        </Link>
+                      ) : (
+                        '—'
+                      )}
+                    </Td>
+                    <Td>
+                      <Link
+                        to={`/red-team/runs/${runId}/vulnerabilities/${r.id}`}
+                        className="text-[12px] text-indigo-600"
+                      >
+                        Detail
                       </Link>
-                    ) : (
-                      '—'
-                    )}
-                  </Td>
-                  <Td>
-                    <Link
-                      to={`/red-team/runs/${runId}/vulnerabilities/${r.id}`}
-                      className="text-[12px] text-indigo-600"
-                    >
-                      Detail
-                    </Link>
-                  </Td>
-                </TRow>
-              ))}
+                    </Td>
+                  </TRow>
+                )
+              })}
             </tbody>
           </Table>
         )}
