@@ -5,7 +5,6 @@ import uuid
 from app.core.database import get_session_factory
 from app.core.logging import get_logger
 from app.repositories.redteam_repository import RedTeamRepository
-from app.services.redteam.runner import RedTeamRunner
 
 logger = get_logger(__name__)
 
@@ -13,7 +12,21 @@ logger = get_logger(__name__)
 async def run_redteam_async(run_id: uuid.UUID) -> None:
     factory = get_session_factory()
     async with factory() as session:
-        runner = RedTeamRunner(session)
+        repo = RedTeamRepository(session)
+        run = await repo.get_run(run_id)
+        if not run:
+            logger.error("Red team run not found: %s", run_id)
+            return
+
+        scan_mode = (run.config or {}).get("scan_mode", "custom")
+
+        if scan_mode == "dynamic":
+            from app.services.redteam.deepteam_service import DeepTeamService
+            runner = DeepTeamService(session)
+        else:
+            from app.services.redteam.runner import RedTeamRunner
+            runner = RedTeamRunner(session)
+
         await runner.run(run_id)
 
 

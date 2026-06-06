@@ -42,38 +42,74 @@ async def create_redteam_run(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> RedTeamRunQueued:
-    invalid = [c for c in body.categories if c not in SUPPORTED_CATEGORIES]
-    if invalid:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported categories: {invalid}. Supported: {SUPPORTED_CATEGORIES}",
-        )
-
     agent = await AgentRepository(session).get_agent(body.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    orchestrator = RedTeamOrchestrator(session)
-    try:
-        run, cases = await orchestrator.create_run(
-            agent_id=body.agent_id,
-            categories=body.categories,
-            judge_model=body.judge_model,
-            use_llm_judge=body.use_llm_judge,
-            include_custom_cases=body.include_custom_cases,
-            selected_case_ids=body.selected_case_ids,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if not cases:
-        raise HTTPException(
-            status_code=400,
-            detail="No test cases found for selected categories and prompts.",
-        )
+    scan_mode = body.scan_mode or "custom"
 
-    await session.commit()
-    background_tasks.add_task(run_redteam_background, str(run.id))
-    return RedTeamRunQueued(run_id=run.id, status="queued")
+    if scan_mode == "dynamic":
+        # ---------- Dynamic mode (DeepTeam) ----------
+        if not body.vulnerabilities:
+            raise HTTPException(status_code=400, detail="Dynamic mode requires at least one vulnerability.")
+        if not body.attacks:
+            raise HTTPException(status_code=400, detail="Dynamic mode requires at least one attack strategy.")
+
+        config = {
+            "scan_mode": "dynamic",
+            "target_purpose": body.target_purpose or f"A {agent.name} assistant.",
+            "target_system_prompt": body.target_system_prompt or "You are a helpful AI assistant.",
+            "vulnerabilities": body.vulnerabilities,
+            "attacks": body.attacks,
+            "judge_model": body.judge_model,
+        }
+        repo = RedTeamRepository(session)
+        run = await repo.create_run(
+            agent_id=body.agent_id,
+            categories=[v.get("name") or v.get("id") for v in body.vulnerabilities],
+            judge_model=body.judge_model,
+            config=config,
+            total_tests=0,
+        )
+        await session.commit()
+        background_tasks.add_task(run_redteam_background, str(run.id))
+        return RedTeamRunQueued(run_id=run.id, status="queued")
+
+    else:
+        # ---------- Custom mode (heuristic library) ----------
+        invalid = [c for c in body.categories if c not in SUPPORTED_CATEGORIES]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported categories: {invalid}. Supported: {SUPPORTED_CATEGORIES}",
+            )
+
+        orchestrator = RedTeamOrchestrator(session)
+        try:
+            run, cases = await orchestrator.create_run(
+                agent_id=body.agent_id,
+                categories=body.categories,
+                judge_model=body.judge_model,
+                use_llm_judge=body.use_llm_judge,
+                include_custom_cases=body.include_custom_cases,
+                selected_case_ids=body.selected_case_ids,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not cases:
+            raise HTTPException(
+                status_code=400,
+                detail="No test cases found for selected categories and prompts.",
+            )
+
+        # Tag config with scan_mode for task routing
+        run_config = dict(run.config or {})
+        run_config["scan_mode"] = "custom"
+        await RedTeamRepository(session).update_run(run, config=run_config)
+
+        await session.commit()
+        background_tasks.add_task(run_redteam_background, str(run.id))
+        return RedTeamRunQueued(run_id=run.id, status="queued")
 
 
 @router.get("/runs", response_model=RedTeamRunListResponse)
@@ -259,3 +295,30 @@ async def redteam_dashboard(
 @router.get("/meta/judge-models")
 async def list_judge_models() -> dict:
     return {"models": DEFAULT_JUDGE_MODELS, "categories": SUPPORTED_CATEGORIES}
+
+
+@router.get("/deepteam/vulnerabilities")
+async def list_deepteam_vulnerabilities() -> dict:
+    from app.services.redteam.deepteam_service import VULNERABILITY_CATALOG
+
+    # Group by category for the frontend
+    grouped: dict[str, list] = {}
+    for v in VULNERABILITY_CATALOG:
+        cat = v["category"]
+        if cat not in grouped:
+            grouped[cat] = []
+        grouped[cat].append(v)
+    return {"vulnerabilities": VULNERABILITY_CATALOG, "grouped": grouped}
+
+
+@router.get("/deepteam/attacks")
+async def list_deepteam_attacks() -> dict:
+    from app.services.redteam.deepteam_service import ATTACK_CATALOG
+
+    single_turn = [a for a in ATTACK_CATALOG if a["type"] == "single_turn"]
+    multi_turn = [a for a in ATTACK_CATALOG if a["type"] == "multi_turn"]
+    return {
+        "attacks": ATTACK_CATALOG,
+        "single_turn": single_turn,
+        "multi_turn": multi_turn,
+    }

@@ -70,6 +70,164 @@ async def get_agent(
     return AgentRead.from_orm_agent(agent)
 
 
+@router.get("/{agent_id}/metadata")
+async def get_agent_metadata(
+    agent_id: uuid.UUID,
+    repo: AgentRepository = Depends(get_agent_repository),
+):
+    agent = await repo.get_agent(agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+
+    def _fetch():
+        import vertexai
+        from vertexai import Client
+        from app.core.config import get_settings
+        from app.services.gcp.auth import require_adc
+        import google.auth
+        from google.auth.transport.requests import AuthorizedSession
+
+        settings = get_settings()
+        auth = require_adc()
+        project = settings.gcp_project_id or auth.project_id
+        if not project or not agent.endpoint_url:
+            return None
+
+        # Try to retrieve A2A card first
+        a2a_card = None
+        try:
+            credentials, _ = google.auth.default()
+            session = AuthorizedSession(credentials)
+            a2a_url = f"https://{agent.region}-aiplatform.googleapis.com/v1beta1/{agent.endpoint_url}/a2a/extendedAgentCard"
+            response = session.get(a2a_url, timeout=5.0)
+            if response.status_code == 200:
+                a2a_card = response.json()
+        except Exception:
+            # Silence exception to fall back to default metadata fetching
+            pass
+
+        try:
+            vertexai.init(project=project, location=agent.region)
+            client = Client(project=project, location=agent.region)
+            engine = client.agent_engines.get(name=agent.endpoint_url)
+
+            # Support both new SDK (api_resource) and old SDK (gca_resource)
+            gca = getattr(engine, 'api_resource', None) or getattr(engine, 'gca_resource', None)
+            if gca is None:
+                return None
+
+            description = getattr(gca, "description", "") or ""
+            tools = []
+            
+            # List of standard ADK framework/lifecycle methods to filter out
+            ADK_FRAMEWORK_METHODS = {
+                "get_session", "list_sessions", "create_session", "delete_session",
+                "async_get_session", "async_list_sessions", "async_create_session", "async_delete_session",
+                "async_stream_query", "stream_query", "streaming_agent_run_with_events",
+                "run", "predict", "query", "stream"
+            }
+
+            spec = getattr(gca, "spec", None)
+            if spec and hasattr(spec, "class_methods"):
+                for m in spec.class_methods:
+                    name = getattr(m, "name", "") if hasattr(m, "name") else m.get("name", "")
+                    if name in ADK_FRAMEWORK_METHODS:
+                        continue
+                    tools.append({
+                        "name": name,
+                        "description": getattr(m, "description", "") if hasattr(m, "description") else m.get("description", ""),
+                    })
+
+            # Parse A2A details if available
+            a2a_desc = ""
+            a2a_prompt = ""
+            a2a_tools = []
+            if a2a_card:
+                a2a_desc = a2a_card.get("description") or a2a_card.get("display_name") or ""
+                a2a_prompt = (
+                    a2a_card.get("instruction")
+                    or a2a_card.get("systemInstruction")
+                    or a2a_card.get("instructions")
+                    or a2a_card.get("system_instruction")
+                    or ""
+                )
+                if isinstance(a2a_prompt, dict):
+                    if "parts" in a2a_prompt:
+                        parts = a2a_prompt.get("parts", [])
+                        a2a_prompt = "\n".join([p.get("text", "") for p in parts if isinstance(p, dict) and p.get("text")])
+                    else:
+                        a2a_prompt = str(a2a_prompt)
+
+                raw_skills = a2a_card.get("skills") or a2a_card.get("tools") or []
+                if isinstance(raw_skills, list):
+                    for skill in raw_skills:
+                        if isinstance(skill, dict):
+                            name = skill.get("name") or skill.get("id") or ""
+                            if name in ADK_FRAMEWORK_METHODS:
+                                continue
+                            a2a_tools.append({
+                                "name": name,
+                                "description": skill.get("description") or "",
+                            })
+
+            resolved_desc = a2a_desc or description
+            resolved_prompt = a2a_prompt or f"You are a {resolved_desc.lower().rstrip('.') or 'helpful AI assistant'}. Focus on performing your tasks safely."
+
+            # Merge tools/skills
+            merged_tools = {t["name"]: t for t in tools if t.get("name")}
+            for t in a2a_tools:
+                if t.get("name"):
+                    merged_tools[t["name"]] = t
+            final_tools = list(merged_tools.values())
+
+            # Format rich target purpose
+            if final_tools:
+                tool_list = "\n".join([f"- {t['name']}: {t['description']}" for t in final_tools if t.get("name")])
+                target_purpose = (
+                    f"{resolved_desc}\n\n"
+                    f"Available capabilities and tools:\n"
+                    f"{tool_list}"
+                )
+            else:
+                target_purpose = resolved_desc or f"A {agent.name.replace('-', ' ').title()} assistant."
+
+            return {
+                "description": resolved_desc,
+                "tools": final_tools,
+                "target_purpose": target_purpose,
+                "system_prompt": resolved_prompt,
+                "a2a_card": a2a_card
+            }
+        except Exception:
+            return None
+
+    sdk_data = await asyncio.to_thread(_fetch) if agent.deployment_type == "vertex_ai" else None
+
+    description = (sdk_data and sdk_data.get("description")) or agent.extra_metadata.get("description") or f"Reasoning engine agent: {agent.name}"
+    target_purpose = (sdk_data and sdk_data.get("target_purpose")) or agent.extra_metadata.get("target_purpose") or description
+    system_prompt = (sdk_data and sdk_data.get("system_prompt")) or agent.extra_metadata.get("system_prompt") or "You are a helpful AI assistant."
+    tools = (sdk_data and sdk_data.get("tools")) or agent.extra_metadata.get("tools") or []
+    a2a_card = sdk_data.get("a2a_card") if (sdk_data and isinstance(sdk_data, dict)) else None
+
+    return {
+        "id": agent.id,
+        "name": agent.name,
+        "display_name": agent.display_name or agent.name,
+        "description": description,
+        "target_purpose": target_purpose,
+        "system_prompt": system_prompt,
+        "model_info": agent.model_name or "gemini-2.5-pro",
+        "deployment_metadata": {
+            "deployment_type": agent.deployment_type,
+            "region": agent.region,
+            "gcp_project": agent.gcp_project,
+            "endpoint_url": agent.endpoint_url,
+        },
+        "tool_metadata": tools,
+        "a2a_card": a2a_card
+    }
+
+
 @router.post("/{agent_id}/test-invoke", response_model=AgentInvokeTestResponse)
 async def test_invoke_agent(
     agent_id: uuid.UUID,

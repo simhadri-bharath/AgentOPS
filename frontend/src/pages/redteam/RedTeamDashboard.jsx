@@ -81,25 +81,40 @@ export default function RedTeamDashboard() {
             <Table>
               <THead>
                 <Th>Run</Th>
+                <Th>Mode</Th>
                 <Th>Status</Th>
                 <Th>Failed</Th>
                 <Th></Th>
               </THead>
               <tbody>
-                {runs.map((r) => (
-                  <TRow key={r.id}>
-                    <Td>{shortId(r.id)}</Td>
-                    <Td>
-                      <Badge variant={runStatusVariant(r.status)}>{r.status}</Badge>
-                    </Td>
-                    <Td>{r.failed}</Td>
-                    <Td>
-                      <Link to={`/red-team/runs/${r.id}`} className="text-indigo-600 text-[12px]">
-                        View
-                      </Link>
-                    </Td>
-                  </TRow>
-                ))}
+                {runs.map((r) => {
+                  const mode = (r.config?.scan_mode) || 'custom'
+                  return (
+                    <TRow key={r.id}>
+                      <Td>{shortId(r.id)}</Td>
+                      <Td>
+                        <span
+                          className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                          style={{
+                            background: mode === 'dynamic' ? '#EEF2FF' : '#F3F4F6',
+                            color: mode === 'dynamic' ? '#4F46E5' : '#6B7280',
+                          }}
+                        >
+                          {mode === 'dynamic' ? 'Dynamic' : 'Custom'}
+                        </span>
+                      </Td>
+                      <Td>
+                        <Badge variant={runStatusVariant(r.status)}>{r.status}</Badge>
+                      </Td>
+                      <Td>{r.failed}</Td>
+                      <Td>
+                        <Link to={`/red-team/runs/${r.id}`} className="text-indigo-600 text-[12px]">
+                          View
+                        </Link>
+                      </Td>
+                    </TRow>
+                  )
+                })}
               </tbody>
             </Table>
           )}
