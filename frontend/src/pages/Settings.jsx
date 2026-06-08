@@ -64,7 +64,7 @@ export default function Settings() {
           Test GCP
         </Btn>
         <Btn primary onClick={handleSync} disabled={syncing}>
-          {syncing ? 'Syncing…' : 'Sync Vertex AI'}
+          {syncing ? 'Syncing…' : 'Sync Agents'}
         </Btn>
       </PageHeader>
 
@@ -88,9 +88,11 @@ export default function Settings() {
                 {health?.gcp_auth === 'ok' ? 'Valid' : 'Invalid'}
               </Badge>
             </SettingRow>
-            <SettingRow name="Reasoning engines (test)" desc={discoveryTest?.message || 'Run Test GCP'} isLast>
+            <SettingRow name="Agent discovery (test)" desc={discoveryTest?.message || 'Run Test GCP'} isLast>
               <Badge variant={discoveryTest?.authenticated ? 'green' : 'gray'}>
-                {discoveryTest?.engine_count ?? '—'} found
+                {discoveryTest?.authenticated
+                  ? `${discoveryTest.engine_count ?? 0} RE / ${discoveryTest.service_count ?? 0} CR`
+                  : '—'}
               </Badge>
             </SettingRow>
           </Card>
@@ -117,15 +119,33 @@ export default function Settings() {
               name="Vertex AI sync"
               desc="POST /api/v1/discovery/vertex-ai/sync"
             >
-              <Badge variant="purple">{agents.length} in DB</Badge>
+              <Badge variant="purple">
+                {agents.filter((a) => a._raw?.deployment_type === 'vertex_ai').length} in DB
+              </Badge>
+            </SettingRow>
+            <SettingRow
+              name="Cloud Run sync"
+              desc="POST /api/v1/discovery/cloud-run/sync"
+            >
+              <Badge variant="blue">
+                {agents.filter((a) => a._raw?.deployment_type === 'cloud_run').length} in DB
+              </Badge>
             </SettingRow>
             <SettingRow
               name="Vertex AI test"
               desc="GET /api/v1/discovery/vertex-ai/test"
+            >
+              <Badge variant={discoveryTest?.vertex?.authenticated ? 'green' : 'gray'}>
+                {discoveryTest?.vertex?.authenticated ? 'OK' : 'Not tested'}
+              </Badge>
+            </SettingRow>
+            <SettingRow
+              name="Cloud Run test"
+              desc="GET /api/v1/discovery/cloud-run/test"
               isLast
             >
-              <Badge variant={discoveryTest?.authenticated ? 'green' : 'gray'}>
-                {discoveryTest?.authenticated ? 'OK' : 'Not tested'}
+              <Badge variant={discoveryTest?.cloudRun?.authenticated ? 'green' : 'gray'}>
+                {discoveryTest?.cloudRun?.authenticated ? 'OK' : 'Not tested'}
               </Badge>
             </SettingRow>
           </Card>

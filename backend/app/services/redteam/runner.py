@@ -77,7 +77,9 @@ class RedTeamRunner:
             if not agent:
                 raise ValueError(f"Agent {run.agent_id} not found")
             if not agent.endpoint_url:
-                raise ValueError("Agent has no endpoint_url (reasoning engine resource)")
+                raise ValueError("Agent has no endpoint_url")
+
+            deployment_type = agent.deployment_type or "vertex_ai"
 
             classifier = ResponseClassifier(
                 use_llm_judge=use_llm_judge,
@@ -88,7 +90,7 @@ class RedTeamRunner:
             result_rows: list[dict[str, Any]] = []
 
             for idx, case in enumerate(cases):
-                invoke = await self._invoke_one(agent.endpoint_url, case.prompt)
+                invoke = await self._invoke_one(agent.endpoint_url, case.prompt, deployment_type=deployment_type)
                 response_text = invoke.output if not invoke.error else ""
                 trace_id = extract_trace_id(invoke.raw) or correlation_trace_id(
                     str(run_id), case.id
@@ -278,10 +280,11 @@ class RedTeamRunner:
             )
             await self._session.commit()
 
-    async def _invoke_one(self, resource_name: str, prompt: str):
+    async def _invoke_one(self, resource_name: str, prompt: str, *, deployment_type: str = "vertex_ai"):
         return await asyncio.to_thread(
             self._invoker.invoke_agent,
             resource_name,
             prompt,
             user_id="agentops_redteam",
+            deployment_type=deployment_type,
         )

@@ -52,14 +52,16 @@ class EvaluationRunner:
                 raise ValueError(f"Dataset {run.dataset_id} not found")
 
             if not agent.endpoint_url:
-                raise ValueError("Agent has no endpoint_url (reasoning engine resource)")
+                raise ValueError("Agent has no endpoint_url")
+
+            deployment_type = agent.deployment_type or "vertex_ai"
 
             validated = parse_dataset_file(dataset.file_path)
             metric_names: list[str] = list(run.metrics or [])
 
-            # Single bulk run_inference call (notebook pattern)
+            # Invoke agent — dispatches to the right invoker based on deployment_type
             invoke_results = await self._run_batch_invoke(
-                agent.endpoint_url, validated.rows
+                agent.endpoint_url, validated.rows, deployment_type=deployment_type
             )
 
            # ── Vertex AI metric groups ───────────────────────────────────────
@@ -120,7 +122,11 @@ class EvaluationRunner:
             selected_managed_metrics    = [m for m in metric_names if m in MANAGED_METRICS]
             managed_scores_by_index: dict[int, dict[str, Any]] = {}
 
-            needs_vertex_eval = bool(selected_trajectory_metrics or selected_managed_metrics)
+            # Vertex-managed/trajectory metrics only work with Reasoning Engine agents
+            needs_vertex_eval = (
+                bool(selected_trajectory_metrics or selected_managed_metrics)
+                and deployment_type == "vertex_ai"
+            )
 
             if needs_vertex_eval:
                 import asyncio
@@ -513,8 +519,17 @@ class EvaluationRunner:
             await self._session.commit()
 
     async def _run_batch_invoke(
-        self, resource_name: str, rows: list[dict[str, str]]
+        self,
+        resource_name: str,
+        rows: list[dict[str, str]],
+        *,
+        deployment_type: str = "vertex_ai",
     ):
         import asyncio
 
-        return await asyncio.to_thread(self._invoker.batch_invoke, resource_name, rows)
+        return await asyncio.to_thread(
+            self._invoker.batch_invoke,
+            resource_name,
+            rows,
+            deployment_type=deployment_type,
+        )

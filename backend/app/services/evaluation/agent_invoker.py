@@ -1,4 +1,4 @@
-"""Vertex AI Reasoning Engine invocation (notebook-aligned)."""
+"""Agent invocation — supports both Vertex AI Reasoning Engine and Cloud Run."""
 
 from __future__ import annotations
 
@@ -34,8 +34,9 @@ class InvokeResult:
 
 class AgentInvoker:
     """
-    Invokes Vertex AI Reasoning Engines using Client.evals.run_inference
-    (same pattern as vertexaireasoningengine.ipynb).
+    Invokes agents deployed on Vertex AI Reasoning Engine or Cloud Run.
+    For Reasoning Engine: uses Client.evals.run_inference (notebook pattern).
+    For Cloud Run: uses authenticated HTTP requests via CloudRunInvoker.
     """
 
     def __init__(self, settings: Settings | None = None) -> None:
@@ -43,6 +44,7 @@ class AgentInvoker:
         self._clients: dict[str, Any] = {}
         self._project_id: str | None = None
         self._default_region: str | None = None
+        self._cloud_run_invoker: Any | None = None
 
     def initialize(self) -> None:
         ok, err = check_evals_dependencies()
@@ -80,6 +82,14 @@ class AgentInvoker:
             self._clients[region] = Client(project=self._project_id, location=region)
         return self._clients[region]
 
+    def _get_cloud_run_invoker(self):
+        """Lazy-init CloudRunInvoker."""
+        if self._cloud_run_invoker is None:
+            from app.services.evaluation.cloud_run_invoker import CloudRunInvoker
+            self._cloud_run_invoker = CloudRunInvoker(self._settings)
+            self._cloud_run_invoker.initialize()
+        return self._cloud_run_invoker
+
     def invoke_agent(
         self,
         resource_name: str,
@@ -87,7 +97,15 @@ class AgentInvoker:
         *,
         context: str | None = None,
         user_id: str = "agentops_eval_user",
+        deployment_type: str = "vertex_ai",
     ) -> InvokeResult:
+        # Dispatch to Cloud Run invoker for cloud_run agents
+        if deployment_type == "cloud_run":
+            cr = self._get_cloud_run_invoker()
+            return cr.invoke_agent(
+                resource_name, prompt, context=context, user_id=user_id
+            )
+
         row: dict[str, str] = {"input": prompt}
         if context:
             row["context"] = context
@@ -100,10 +118,16 @@ class AgentInvoker:
         rows: list[dict[str, str]],
         *,
         user_id: str = "agentops_eval_user",
+        deployment_type: str = "vertex_ai",
     ) -> list[InvokeResult]:
         """Bulk invoke via client.evals.run_inference (notebook bulk pattern)."""
         if not rows:
             return []
+
+        # Dispatch to Cloud Run invoker for cloud_run agents
+        if deployment_type == "cloud_run":
+            cr = self._get_cloud_run_invoker()
+            return cr.batch_invoke(resource_name, rows, user_id=user_id)
 
         region = self._extract_region(resource_name)
         client = self._ensure_client(region)

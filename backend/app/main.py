@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.core.database import close_db, get_engine, get_session_factory
 from app.core.logging import get_logger, setup_logging
 from app.services.discovery.vertex_ai import VertexAIDiscoveryService
+from app.services.discovery.cloud_run import CloudRunDiscoveryService
 from app.services.gcp.auth import validate_adc_credentials
 from app.services.gcp.eval_deps import check_evals_dependencies
 
@@ -74,6 +75,33 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception as exc:
             logger.warning(
                 "Vertex AI discovery sync failed at startup: %s",
+                exc,
+                extra={"component": "startup"},
+            )
+
+        # Cloud Run discovery sync
+        try:
+            factory = get_session_factory()
+            async with factory() as session:
+                cr_summary = await CloudRunDiscoveryService(session).sync_to_database()
+                await session.commit()
+            logger.info(
+                "Cloud Run discovery sync on startup: discovered=%s created=%s updated=%s unchanged=%s",
+                cr_summary.discovered,
+                cr_summary.created,
+                cr_summary.updated,
+                cr_summary.unchanged,
+                extra={"component": "startup"},
+            )
+            if cr_summary.errors:
+                logger.warning(
+                    "Cloud Run discovery sync errors: %s",
+                    cr_summary.errors,
+                    extra={"component": "startup"},
+                )
+        except Exception as exc:
+            logger.warning(
+                "Cloud Run discovery sync failed at startup: %s",
                 exc,
                 extra={"component": "startup"},
             )

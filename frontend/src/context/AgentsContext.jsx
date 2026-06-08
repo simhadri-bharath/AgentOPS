@@ -49,16 +49,63 @@ export function AgentsProvider({ children }) {
   }, [])
 
   const testDiscovery = useCallback(async () => {
-    const data = await discoveryApi.testVertexAI()
-    setDiscoveryTest(data)
-    return data
+    try {
+      const [vertexData, cloudRunData] = await Promise.all([
+        discoveryApi.testVertexAI().catch((err) => ({
+          authenticated: false,
+          message: err.message || 'Vertex AI test failed',
+          engine_count: 0,
+        })),
+        discoveryApi.testCloudRun().catch((err) => ({
+          authenticated: false,
+          message: err.message || 'Cloud Run test failed',
+          service_count: 0,
+        })),
+      ])
+
+      const authenticated = vertexData.authenticated || cloudRunData.authenticated
+      const project_id = vertexData.project_id || cloudRunData.project_id
+      const region = vertexData.region || cloudRunData.region
+
+      let message = ''
+      if (vertexData.authenticated && cloudRunData.authenticated) {
+        message = `Successfully connected. Found ${vertexData.engine_count} Reasoning Engine(s) and ${cloudRunData.service_count} Cloud Run service(s).`
+      } else if (vertexData.authenticated) {
+        message = `Connected to Vertex AI (${vertexData.engine_count} engines). Cloud Run test failed: ${cloudRunData.message}`
+      } else if (cloudRunData.authenticated) {
+        message = `Connected to Cloud Run (${cloudRunData.service_count} services). Vertex AI test failed: ${vertexData.message}`
+      } else {
+        message = `Connection failed. Vertex AI: ${vertexData.message} | Cloud Run: ${cloudRunData.message}`
+      }
+
+      const combined = {
+        authenticated,
+        project_id,
+        region,
+        engine_count: vertexData.engine_count,
+        service_count: cloudRunData.service_count,
+        message,
+        vertex: vertexData,
+        cloudRun: cloudRunData,
+      }
+
+      setDiscoveryTest(combined)
+      return combined
+    } catch (err) {
+      const failed = {
+        authenticated: false,
+        message: err.message || 'Discovery connection test failed',
+      }
+      setDiscoveryTest(failed)
+      return failed
+    }
   }, [])
 
   const syncDiscovery = useCallback(async () => {
     setSyncing(true)
     setError(null)
     try {
-      const summary = await discoveryApi.syncVertexAI()
+      const summary = await discoveryApi.syncAll()
       await refreshAgents()
       setLastSyncedAt(new Date())
       return summary

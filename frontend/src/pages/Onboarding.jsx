@@ -55,7 +55,7 @@ export default function Onboarding() {
     try {
       const summary = await syncDiscovery()
       setTestMessage(
-        `Synced ${summary.discovered} engine(s): ${summary.created} created, ${summary.updated} updated.`
+        `Synced ${summary.discovered} agent(s): ${summary.created} created, ${summary.updated} updated.`
       )
     } catch (err) {
       setTestMessage(err.message)
@@ -95,7 +95,7 @@ export default function Onboarding() {
         <OnboardStep
           num={3}
           title="Discover agents"
-          desc="Sync Vertex AI Reasoning Engines into the agent registry"
+          desc="Sync Vertex AI Reasoning Engines and Cloud Run services into the registry"
           done={hasAgents}
           active={!hasAgents}
           action={

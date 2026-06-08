@@ -201,9 +201,108 @@ async def get_agent_metadata(
         except Exception:
             return None
 
-    sdk_data = await asyncio.to_thread(_fetch) if agent.deployment_type == "vertex_ai" else None
+    if agent.deployment_type == "vertex_ai":
+        sdk_data = await asyncio.to_thread(_fetch)
+    elif agent.deployment_type == "cloud_run":
+        # Cloud Run metadata is stored at discovery time, but we fetch live spec from agent.json/agent-card.json
+        # to get detailed tool specs, tags, capabilities, etc.
+        async def _fetch_cloud_run_card(endpoint_url: str) -> dict | None:
+            try:
+                import httpx
+                from app.services.evaluation.cloud_run_invoker import CloudRunInvoker
+                
+                invoker = CloudRunInvoker()
+                base_url = endpoint_url.rstrip("/")
+                print("Fetching metadata for base URL:", base_url)
+                token = invoker._get_id_token(base_url)
+                print("OIDC token obtained:", token[:15] + "..." if token else "None")
+                
+                headers = {}
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
+                    
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    # Try agent.json
+                    url = f"{base_url}/.well-known/agent.json"
+                    print("Trying GET:", url)
+                    resp = await client.get(url, headers=headers)
+                    print("Response status code for agent.json:", resp.status_code)
+                    if resp.status_code == 200:
+                        return resp.json()
+                        
+                    # Fallback to agent-card.json
+                    url = f"{base_url}/.well-known/agent-card.json"
+                    print("Trying GET:", url)
+                    resp = await client.get(url, headers=headers)
+                    print("Response status code for agent-card.json:", resp.status_code)
+                    if resp.status_code == 200:
+                        return resp.json()
+            except Exception as exc:
+                print("Exception during metadata fetch:", exc)
+                import traceback
+                traceback.print_exc()
+            return None
 
-    description = (sdk_data and sdk_data.get("description")) or agent.extra_metadata.get("description") or f"Reasoning engine agent: {agent.name}"
+        card = await _fetch_cloud_run_card(agent.endpoint_url)
+        cr_meta = agent.extra_metadata or {}
+        
+        if card:
+            card_desc = card.get("description") or card.get("name") or cr_meta.get("description") or f"Cloud Run service: {agent.name}"
+            skills = card.get("skills") or []
+            
+            tool_list = []
+            tools_desc_list = []
+            for s in skills:
+                name = s.get("name") or s.get("id") or ""
+                desc = s.get("description") or ""
+                tags = s.get("tags") or []
+                examples = s.get("examples") or []
+                
+                tool_list.append({
+                    "name": name,
+                    "description": desc,
+                })
+                
+                s_desc = f"- **{name}**: {desc}"
+                if tags:
+                    s_desc += f" (Tags: {', '.join(tags)})"
+                if examples:
+                    ex_list = "\n".join([f"    * \"{ex}\"" for ex in examples])
+                    s_desc += f"\n  Examples:\n{ex_list}"
+                tools_desc_list.append(s_desc)
+                
+            tool_desc_str = "\n".join(tools_desc_list)
+            
+            target_purpose = (
+                f"**Name**: {card.get('name', agent.name)}\n"
+                f"**Description**: {card_desc}\n"
+                f"**Version**: {card.get('version', '1.0.0')}\n"
+                f"**Input Modes**: {', '.join(card.get('defaultInputModes', []))}\n"
+                f"**Output Modes**: {', '.join(card.get('defaultOutputModes', []))}\n\n"
+                f"**Skills and Capabilities**:\n{tool_desc_str}"
+            )
+            
+            system_prompt = card_desc or "You are a helpful AI assistant."
+            
+            sdk_data = {
+                "description": card_desc,
+                "tools": tool_list,
+                "target_purpose": target_purpose,
+                "system_prompt": system_prompt,
+                "a2a_card": card,
+            }
+        else:
+            sdk_data = {
+                "description": cr_meta.get("description") or f"Cloud Run service: {agent.name}",
+                "tools": cr_meta.get("tools") or [],
+                "target_purpose": cr_meta.get("target_purpose") or f"A {agent.name.replace('-', ' ').title()} assistant.",
+                "system_prompt": cr_meta.get("system_prompt") or "You are a helpful AI assistant.",
+                "a2a_card": cr_meta.get("a2a_card"),
+            }
+    else:
+        sdk_data = None
+
+    description = (sdk_data and sdk_data.get("description")) or agent.extra_metadata.get("description") or f"Agent: {agent.name}"
     target_purpose = (sdk_data and sdk_data.get("target_purpose")) or agent.extra_metadata.get("target_purpose") or description
     system_prompt = (sdk_data and sdk_data.get("system_prompt")) or agent.extra_metadata.get("system_prompt") or "You are a helpful AI assistant."
     tools = (sdk_data and sdk_data.get("tools")) or agent.extra_metadata.get("tools") or []
@@ -235,8 +334,8 @@ async def test_invoke_agent(
     repo: AgentRepository = Depends(get_agent_repository),
 ) -> AgentInvokeTestResponse:
     """
-    Debug a single prompt against the agent's Reasoning Engine.
-    Tries run_inference (1 row) then stream_query fallback.
+    Debug a single prompt against the agent.
+    Dispatches to the right invoker based on deployment_type.
     """
     agent = await repo.get_agent(agent_id)
     if agent is None:
@@ -244,6 +343,7 @@ async def test_invoke_agent(
     if not agent.endpoint_url:
         raise HTTPException(status_code=400, detail="Agent has no endpoint_url")
 
+    deployment_type = agent.deployment_type or "vertex_ai"
     row: dict[str, str] = {"input": body.prompt}
     if body.context:
         row["context"] = body.context
@@ -260,13 +360,23 @@ async def test_invoke_agent(
         project_id = settings.gcp_project_id or auth.project_id or ""
         region = settings.gcp_region
 
-        results = invoker.batch_invoke(agent.endpoint_url, [row])
+        results = invoker.batch_invoke(agent.endpoint_url, [row], deployment_type=deployment_type)
         r = results[0] if results else None
         if r and r.output.strip():
+            via = "cloud_run_http" if deployment_type == "cloud_run" else "run_inference"
             return AgentInvokeTestResponse(
                 output=r.output,
                 latency_ms=r.latency_ms,
-                via="run_inference",
+                via=via,
+            )
+
+        # stream_query fallback only for Reasoning Engine agents
+        if deployment_type != "vertex_ai":
+            return AgentInvokeTestResponse(
+                output=r.output if r else "",
+                latency_ms=r.latency_ms if r else 0,
+                error=r.error if r else "No result from Cloud Run agent",
+                via="cloud_run_http",
             )
 
         prompt = row["input"]

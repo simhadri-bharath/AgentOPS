@@ -450,6 +450,7 @@ class DeepTeamService:
         # Initialize the invoker for agent communication
         self._invoker.initialize()
         endpoint_url = agent.endpoint_url
+        deployment_type = agent.deployment_type or "vertex_ai"
 
         # Build a SYNCHRONOUS model callback — DeepTeam wraps it internally.
         # Signature: Callable[[str, Optional[List[RTTurn]]], RTTurn]
@@ -457,7 +458,7 @@ class DeepTeamService:
 
         def model_callback(user_input: str, turns=None) -> RTTurn:
             try:
-                result = self._invoke_agent(endpoint_url, user_input)
+                result = self._invoke_agent(endpoint_url, user_input, deployment_type=deployment_type)
                 return RTTurn(role="assistant", content=result)
             except Exception as exc:
                 logger.warning("Agent invocation error during DeepTeam scan: %s", exc)
@@ -616,13 +617,19 @@ class DeepTeamService:
             logger.exception("DeepTeam scan failed: %s", exc)
             await self._fail_run(run, str(exc))
 
-    def _invoke_agent(self, endpoint_url: str, prompt: str) -> str:
+    def _invoke_agent(self, endpoint_url: str, prompt: str, *, deployment_type: str = "vertex_ai") -> str:
         """Synchronously invoke the agent via the existing AgentInvoker."""
         row = {"input": prompt}
-        results = self._invoker.batch_invoke(endpoint_url, [row])
+        results = self._invoker.batch_invoke(endpoint_url, [row], deployment_type=deployment_type)
         if results and results[0].output:
             return results[0].output
-        # Fallback: try stream_query
+
+        # stream_query fallback only works for Reasoning Engine agents
+        if deployment_type != "vertex_ai":
+            error = results[0].error if results else "No result"
+            raise RuntimeError(f"Agent invocation failed: {error}")
+
+        # Fallback: try stream_query for Reasoning Engine
         from app.core.config import get_settings
         from app.services.gcp.auth import require_adc
         from app.services.evaluation.reasoning_engine_direct import stream_query_prompt
