@@ -22,6 +22,16 @@ logger = get_logger(__name__)
 _AGENTOPS_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 
 
+def agent_uuid_for_resource(resource_name: str) -> uuid.UUID:
+    """Deterministic agent ID for a GCP resource, so re-discovery is idempotent."""
+    return uuid.uuid5(_AGENTOPS_NAMESPACE, resource_name)
+
+
+def slugify(name: str) -> str:
+    slug = name.lower().strip().replace(" ", "-")
+    return "".join(c if c.isalnum() or c in "-_" else "-" for c in slug)[:255]
+
+
 class VertexAIDiscoveryService(BaseDiscoveryService):
     """
     Discovers Vertex AI Reasoning Engines using the preview SDK
@@ -153,7 +163,7 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
     def parse_reasoning_engine(self, engine: Any, region: str | None = None) -> AgentCreate:
         resource_name = getattr(engine, "resource_name", None) or str(engine)
         engine_id = resource_name.split("/")[-1]
-        agent_uuid = uuid.uuid5(_AGENTOPS_NAMESPACE, resource_name)
+        agent_uuid = agent_uuid_for_resource(resource_name)
 
         display_name = getattr(engine, "display_name", None) or f"agent-{engine_id[:8]}"
 
@@ -201,8 +211,7 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
 
     @staticmethod
     def _slugify(name: str) -> str:
-        slug = name.lower().strip().replace(" ", "-")
-        return "".join(c if c.isalnum() or c in "-_" else "-" for c in slug)[:255]
+        return slugify(name)
 
     async def sync_to_database(self) -> DiscoverySyncSummary:
         await self.initialize()

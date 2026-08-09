@@ -23,3 +23,6 @@ google-auth>=2.36.0,<3.0.0
 # Red team evaluation (judge layer only)
 deepeval>=2.0.0,<4.0.0
 deepteam>=1.0.0,<2.0.0
+httpx>=0.27,<1.0
+pytest>=8.0
+pytest-asyncio>=0.24

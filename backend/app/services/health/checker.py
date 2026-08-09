@@ -3,6 +3,7 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.database import get_engine
 from app.core.logging import get_logger
 from app.schemas.common import HealthStatus
@@ -46,5 +47,9 @@ class HealthChecker:
             details={
                 "database": db_status,
                 "gcp_auth": gcp_status,
+                # Which project the platform is pointed at -- the UI shows this,
+                # and "wrong project" is the most common reason nothing appears.
+                "gcp_project": get_settings().gcp_project_id or None,
+                "gcp_region": get_settings().gcp_region or None,
             },
         )

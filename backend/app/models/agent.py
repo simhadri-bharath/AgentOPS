@@ -26,6 +26,24 @@ class Agent(Base):
     gcp_project: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
+
+    # What the agent is for. agent_type and capabilities are deliberately
+    # separate: an agent can be multi_agent AND retrieval-backed, and type alone
+    # would recommend the wrong metrics for it.
+    agent_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="unknown", index=True
+    )
+    capabilities: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default="[]", default=list
+    )
+    purpose: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Enforcement hook for red-team gating; recorded now to avoid a backfill later.
+    environment: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="unknown", index=True
+    )
+    invocation_config: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}", default=dict
+    )
     discovered_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

@@ -1,8 +1,8 @@
 import React from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  Brain, Building2, ChevronDown, LayoutDashboard, Bot, FlaskConical,
-  BarChart2, History, Briefcase, Activity, Terminal, ShieldAlert, Rocket, Settings, Ellipsis
+  Brain, Building2, LayoutDashboard, Bot, FlaskConical, Server,
+  History, Activity, Terminal, ShieldAlert, Crosshair, Library, Rocket, Settings
 } from 'lucide-react'
 import { useAgents } from '../context/AgentsContext'
 
@@ -34,18 +34,9 @@ function NavItem({ to, icon: Icon, label, badge }) {
   )
 }
 
-const projects = [
-  "my-gcp-project",
-  "vertex-ai-platform",
-  "agentops-prod",
-  "rag-evaluation-system",
-  "genai-monitoring",
-  "ml-evaluation-suite",
-  "production-agents"
-];
-
 export default function Sidebar() {
-  const { agents} = useAgents()
+  const { agents, health } = useAgents()
+  const project = health?.details?.gcp_project || 'no project set'
   return (
     <div
       className="w-[220px] flex-shrink-0 flex flex-col"
@@ -66,22 +57,21 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Workspace selector */}
-
-      
+      {/* Active GCP project (single-project today; no switcher to imply otherwise) */}
       <div
-        className="mx-2 my-2 px-2.5 py-1 border rounded-md flex items-center gap-2 cursor-pointer"
+        className="mx-2 my-2 px-2.5 py-1 border rounded-md flex items-center gap-2"
         style={{ borderColor: '#E5E7EB', background: 'var(--color-background-secondary)', borderWidth: '0.5px' }}
+        title={project}
       >
         <Building2 size={14} className="text-gray-400" />
-        <span className="text-[12px] text-gray-600 flex-1">my-gcp-project</span>
-        <ChevronDown size={14} className="text-gray-400" />
+        <span className="text-[12px] text-gray-600 flex-1 truncate">{project}</span>
       </div>
 
       {/* Nav */}
       <div className="flex-1 overflow-y-auto">
         <NavSection label="Platform" />
         <NavItem to="/dashboard" icon={LayoutDashboard} label="Dashboard" />
+        <NavItem to="/deployments" icon={Server} label="Deployments" />
         <NavItem to="/agents" icon={Bot} label="Agents" badge={agents.length} />
 
         <NavSection label="Evaluation" />
@@ -96,27 +86,14 @@ export default function Sidebar() {
 
         <NavSection label="Red team" />
         <NavItem to="/red-team" icon={ShieldAlert} label="Scanner" />
-        {/* <NavItem to="/red-team/library" icon={ShieldAlert} label="Attack library" /> */}
-        {/* <NavItem to="/red-team/scan" icon={ShieldAlert} label="New scan" /> */}
+        <NavItem to="/red-team/scan" icon={Crosshair} label="New scan" />
+        <NavItem to="/red-team/library" icon={Library} label="Attack library" />
 
         <NavSection label="Setup" />
         <NavItem to="/onboarding" icon={Rocket} label="Onboarding" />
         <NavItem to="/settings" icon={Settings} label="Settings" />
       </div>
 
-      {/* Footer */}
-      <div style={{ borderTop: '0.5px solid #E5E7EB', padding: '10px' }}>
-        <div className="flex items-center gap-2 px-1 py-1 cursor-pointer rounded-md hover:bg-gray-50">
-          <div className="w-7 h-6 rounded-full bg-indigo-50 flex items-center justify-center text-[11px] font-medium text-indigo-700 flex-shrink-0">
-            JY
-          </div>
-          <div className="flex-1">
-            <div className="text-[12px] font-medium text-gray-900">Jyoti</div>
-            <div className="text-[11px] text-gray-400">Admin</div>
-          </div>
-          <Ellipsis size={14} className="text-gray-400" />
-        </div>
-      </div>
     </div>
   )
 }

@@ -9,6 +9,28 @@ from pydantic import Field
 from app.schemas.common import ORMBase
 
 
+AGENT_TYPES: list[str] = [
+    "rag",
+    "tool_calling",
+    "conversational",
+    "task",
+    "multi_agent",
+    "unknown",
+]
+
+CAPABILITIES: list[str] = [
+    "retrieval",
+    "tool_use",
+    "reasoning",
+    "code_execution",
+    "external_api",
+    "memory",
+    "multi_agent",
+]
+
+ENVIRONMENTS: list[str] = ["development", "staging", "production", "unknown"]
+
+
 class AgentBase(ORMBase):
     name: str
     display_name: str | None = None
@@ -19,6 +41,11 @@ class AgentBase(ORMBase):
     gcp_project: str | None = None
     status: str = "unknown"
     source: str = "manual"
+    agent_type: str = "unknown"
+    capabilities: list[str] = Field(default_factory=list)
+    purpose: str | None = None
+    environment: str = "unknown"
+    invocation_config: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -36,9 +63,25 @@ class AgentUpdate(ORMBase):
     gcp_project: str | None = None
     status: str | None = None
     source: str | None = None
+    agent_type: str | None = None
+    capabilities: list[str] | None = None
+    purpose: str | None = None
+    environment: str | None = None
+    invocation_config: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
     discovered_at: datetime | None = None
     last_seen_at: datetime | None = None
+
+
+class AgentPatch(ORMBase):
+    """User-editable agent profile fields."""
+
+    display_name: str | None = None
+    agent_type: str | None = None
+    capabilities: list[str] | None = None
+    purpose: str | None = None
+    environment: str | None = None
+    invocation_config: dict[str, Any] | None = None
 
 
 class AgentRead(AgentBase):
@@ -61,6 +104,11 @@ class AgentRead(AgentBase):
             gcp_project=agent.gcp_project,
             status=agent.status,
             source=agent.source,
+            agent_type=agent.agent_type or "unknown",
+            capabilities=list(agent.capabilities or []),
+            purpose=agent.purpose,
+            environment=agent.environment or "unknown",
+            invocation_config=dict(agent.invocation_config or {}),
             metadata=agent.extra_metadata or {},
             discovered_at=agent.discovered_at,
             last_seen_at=agent.last_seen_at,

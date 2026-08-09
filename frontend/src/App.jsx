@@ -6,6 +6,7 @@ import AppLayout from './layouts/AppLayout'
 import Dashboard from './pages/Dashboard'
 import Agents from './pages/Agents'
 import AgentDetail from './pages/AgentDetail'
+import Deployments from './pages/Deployments'
 import Evaluation from './pages/Evaluation'
 import JobsPage from './pages/JobsPage'
 import JobDetailsPage from './pages/JobDetailsPage'
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/" element={<AppLayout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="deployments" element={<Deployments />} />
           <Route path="agents" element={<Agents />} />
           <Route path="agents/:id" element={<AgentDetail />} />
           <Route path="evaluation" element={<Evaluation />} />

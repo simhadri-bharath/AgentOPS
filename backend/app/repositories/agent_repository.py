@@ -27,6 +27,11 @@ class AgentRepository:
             gcp_project=data.gcp_project,
             status=data.status,
             source=data.source,
+            agent_type=data.agent_type,
+            capabilities=list(data.capabilities),
+            purpose=data.purpose,
+            environment=data.environment,
+            invocation_config=dict(data.invocation_config),
             extra_metadata=data.metadata,
             discovered_at=datetime.now(timezone.utc),
             last_seen_at=datetime.now(timezone.utc),
@@ -104,6 +109,18 @@ class AgentRepository:
             existing.gcp_project = data.gcp_project
             existing.status = data.status
             existing.source = data.source
+            # Profile fields are user-owned. Discovery reruns at every startup and
+            # must not wipe what someone set during onboarding -- only fill blanks.
+            if existing.agent_type in (None, "", "unknown") and data.agent_type != "unknown":
+                existing.agent_type = data.agent_type
+            if not existing.capabilities and data.capabilities:
+                existing.capabilities = list(data.capabilities)
+            if not existing.purpose and data.purpose:
+                existing.purpose = data.purpose
+            if existing.environment in (None, "", "unknown") and data.environment != "unknown":
+                existing.environment = data.environment
+            if not existing.invocation_config and data.invocation_config:
+                existing.invocation_config = dict(data.invocation_config)
             existing.extra_metadata = {**(existing.extra_metadata or {}), **data.metadata}
             existing.last_seen_at = now
             existing.updated_at = now
@@ -124,6 +141,11 @@ class AgentRepository:
             gcp_project=data.gcp_project,
             status=data.status,
             source=data.source,
+            agent_type=data.agent_type,
+            capabilities=list(data.capabilities),
+            purpose=data.purpose,
+            environment=data.environment,
+            invocation_config=dict(data.invocation_config),
             extra_metadata=data.metadata,
             discovered_at=now,
             last_seen_at=now,
@@ -132,6 +154,39 @@ class AgentRepository:
         await self._session.flush()
         await self._session.refresh(agent)
         return agent, True
+
+    async def set_profile(
+        self,
+        agent: Agent,
+        *,
+        agent_type: str | None = None,
+        capabilities: list[str] | None = None,
+        purpose: str | None = None,
+        environment: str | None = None,
+        invocation_config: dict[str, Any] | None = None,
+        display_name: str | None = None,
+    ) -> Agent:
+        """Apply an explicit user decision about what an agent is.
+
+        Unlike upsert_agent, this overwrites -- onboarding and manual edits win
+        over whatever discovery inferred.
+        """
+        if agent_type is not None:
+            agent.agent_type = agent_type
+        if capabilities is not None:
+            agent.capabilities = list(capabilities)
+        if purpose is not None:
+            agent.purpose = purpose
+        if environment is not None:
+            agent.environment = environment
+        if invocation_config is not None:
+            agent.invocation_config = dict(invocation_config)
+        if display_name is not None:
+            agent.display_name = display_name
+        agent.updated_at = datetime.now(timezone.utc)
+        await self._session.flush()
+        await self._session.refresh(agent)
+        return agent
 
     async def delete_agent(self, agent_id: uuid.UUID) -> bool:
         agent = await self.get_agent(agent_id)

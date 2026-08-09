@@ -10,9 +10,13 @@ from app.dependencies import get_agent_repository, get_session
 from app.repositories.agent_repository import AgentRepository
 from app.repositories.evaluation_repository import EvaluationRepository
 from app.schemas.agent import (
+    AGENT_TYPES,
+    CAPABILITIES,
+    ENVIRONMENTS,
     AgentInvokeTestRequest,
     AgentInvokeTestResponse,
     AgentListResponse,
+    AgentPatch,
     AgentRead,
 )
 from app.schemas.evaluation import EvaluationRunListResponse, evaluation_run_from_orm
@@ -67,6 +71,45 @@ async def get_agent(
     agent = await repo.get_agent(agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+    return AgentRead.from_orm_agent(agent)
+
+
+@router.patch("/{agent_id}", response_model=AgentRead)
+async def patch_agent(
+    agent_id: uuid.UUID,
+    body: AgentPatch,
+    repo: AgentRepository = Depends(get_agent_repository),
+) -> AgentRead:
+    """Edit the agent profile that drives metric recommendation and gating."""
+    agent = await repo.get_agent(agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+
+    if body.agent_type is not None and body.agent_type not in AGENT_TYPES:
+        raise HTTPException(
+            status_code=400, detail=f"agent_type must be one of {AGENT_TYPES}"
+        )
+    if body.environment is not None and body.environment not in ENVIRONMENTS:
+        raise HTTPException(
+            status_code=400, detail=f"environment must be one of {ENVIRONMENTS}"
+        )
+    if body.capabilities is not None:
+        unknown = [c for c in body.capabilities if c not in CAPABILITIES]
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown capabilities {unknown}; valid: {CAPABILITIES}",
+            )
+
+    agent = await repo.set_profile(
+        agent,
+        agent_type=body.agent_type,
+        capabilities=body.capabilities,
+        purpose=body.purpose,
+        environment=body.environment,
+        invocation_config=body.invocation_config,
+        display_name=body.display_name,
+    )
     return AgentRead.from_orm_agent(agent)
 
 
