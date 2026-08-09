@@ -148,3 +148,31 @@ def test_baseline_metrics_need_no_reference():
     for name in pack["metrics"]:
         if name in METRIC_REGISTRY and name.startswith("trace_"):
             assert METRIC_REGISTRY[name].requires_reference is False
+
+
+def test_legacy_vertex_framework_still_readable_but_ragas_is_not():
+    """Old rows stored 'vertex'; those runs executed and stay re-runnable.
+
+    'ragas' is not forgiven: it was selectable while uninstalled with zero code,
+    so accepting it would recreate the same lie under a different name.
+    """
+    from app.schemas.evaluation import FRAMEWORKS, normalize_framework
+
+    assert normalize_framework("vertex") == "deepeval"
+    assert normalize_framework("vertex_ai") == "deepeval"
+    assert normalize_framework("deepeval") == "deepeval"
+    assert normalize_framework("ragas") not in FRAMEWORKS
+    assert normalize_framework("anything-else") not in FRAMEWORKS
+
+
+def test_registry_has_no_metric_the_old_ui_offered_but_backend_dropped():
+    # These were selectable in the wizard and mapped to string comparisons.
+    for gone in (
+        "response_length",
+        "latency_ms",
+        "custom_llm_metric",
+        "custom_code_metric",
+        "final_response_quality",
+        "agent_trajectory_exact_match",
+    ):
+        assert gone not in METRIC_REGISTRY

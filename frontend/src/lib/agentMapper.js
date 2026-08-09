@@ -61,8 +61,14 @@ export function mapApiAgent(agent, index = 0) {
     endpoint: agent.endpoint_url || '—',
     framework: meta.framework || 'Google ADK',
     project: agent.gcp_project || '—',
-    tools: toolKeys.length ? toolKeys.join(', ') : '—',
+    tools: (meta.observed_tools || []).join(', ') || (toolKeys.length ? toolKeys.join(', ') : '—'),
     source: agent.source,
+    // Profile fields drive metric recommendation and red-team gating; surfacing
+    // them here means pages do not have to dig into _raw.
+    agentType: agent.agent_type || 'unknown',
+    capabilities: agent.capabilities || [],
+    purpose: agent.purpose || '',
+    environment: agent.environment || 'unknown',
     discoveredAt: agent.discovered_at,
     lastSeenAt: agent.last_seen_at,
     metadata: meta,

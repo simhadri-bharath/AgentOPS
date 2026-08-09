@@ -99,7 +99,7 @@ export default function EvaluationSampleDetail() {
     )
   }
 
-  const passed = samplePassed(result.scores)
+  const passed = samplePassed(result.scores, result.state)
   const { metrics, explanations, invocationError, outputNonempty } = partitionSampleScores(
     result.scores
   )

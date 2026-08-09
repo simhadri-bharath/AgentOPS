@@ -22,6 +22,7 @@ from app.schemas.evaluation import (
     EvaluationRunRead,
     evaluation_result_from_orm,
     evaluation_run_from_orm,
+    normalize_framework,
 )
 from app.services.datasets.parser import parse_dataset_file
 from app.services.evaluation.metric_registry import (
@@ -46,26 +47,17 @@ def _evaluation_not_found_detail(evaluation_id: uuid.UUID) -> str:
 
 
 def _validate_framework_metrics(framework: str, metrics: list[str]) -> None:
-    """Reject unknown metrics by name instead of silently rewriting them."""
+    """Reject unknown frameworks and metrics by name, rather than rewriting them."""
+    resolved = normalize_framework(framework)
+    if resolved not in FRAMEWORKS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported framework: {framework}. Supported: {FRAMEWORKS}",
+        )
     try:
         validate_metrics(metrics)
     except UnknownMetricError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-def _validate_reference_column(metrics: list[str], dataset_path: str) -> None:
-    if "final_response_match" in metrics:
-        try:
-            validated = parse_dataset_file(dataset_path)
-            if not any("reference" in r for r in validated.rows):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Dataset must contain a 'reference' column if 'final_response_match' is selected.",
-                )
-        except Exception as exc:
-            if isinstance(exc, HTTPException):
-                raise exc
-            raise HTTPException(status_code=400, detail=str(exc))
 
 
 async def _prepare_metrics_for_dataset(
@@ -110,7 +102,6 @@ async def create_evaluation_job(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    _validate_reference_column(body.metrics, dataset.file_path)
 
     eval_repo = EvaluationRepository(session)
     run = await eval_repo.create_draft(
@@ -155,7 +146,6 @@ async def update_evaluation_job(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    _validate_reference_column(body.metrics, dataset.file_path)
 
     framework = body.framework if body.framework != "vertex_ai" else "vertex"
     run = await repo.update_draft(
@@ -190,7 +180,6 @@ async def run_evaluation_job(
     dataset = await DatasetRepository(session).get(run.dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    _validate_reference_column(list(run.metrics or []), dataset.file_path)
 
     executable = await _prepare_metrics_for_dataset(
         session, run.dataset_id, run.framework, list(run.metrics or [])
@@ -223,7 +212,6 @@ async def start_evaluation(
     dataset = await DatasetRepository(session).get(body.dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    _validate_reference_column(body.metrics, dataset.file_path)
 
     executable = await _prepare_metrics_for_dataset(
         session, body.dataset_id, body.framework, list(body.metrics)

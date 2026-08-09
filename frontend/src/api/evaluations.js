@@ -1,13 +1,7 @@
 import { api } from './client'
 
-/** Legacy metric list for backward-compatible direct-run flow. */
-export const SUPPORTED_METRICS = [
-  { id: 'exact_match', label: 'Exact match', defaultOn: true },
-  { id: 'contains_expected', label: 'Contains expected', defaultOn: true },
-  { id: 'response_nonempty', label: 'Response non-empty', defaultOn: true },
-  { id: 'response_length', label: 'Response length', defaultOn: true },
-  { id: 'latency_ms', label: 'Latency (ms)', defaultOn: true },
-]
+// Metric names come from GET /api/v1/evaluations/meta/metrics. A hardcoded
+// list here named response_length and latency_ms, which the registry rejects.
 
 export function fetchEvaluations(params = {}) {
   const qs = new URLSearchParams()
@@ -50,7 +44,7 @@ export function createEvaluationJob(body) {
   return api.post('/api/v1/evaluations/jobs', {
     agent_id: body.agent_id,
     dataset_id: body.dataset_id,
-    framework: body.framework || 'vertex',
+    framework: body.framework || 'deepeval',
     metrics: body.metrics,
     name: body.name,
   })
@@ -60,7 +54,7 @@ export function updateEvaluationJob(evaluationId, body) {
   return api.patch(`/api/v1/evaluations/${evaluationId}`, {
     agent_id: body.agent_id,
     dataset_id: body.dataset_id,
-    framework: body.framework || 'vertex',
+    framework: body.framework || 'deepeval',
     metrics: body.metrics || [],
   })
 }
@@ -73,7 +67,7 @@ export function startEvaluation(body) {
   return api.post('/api/v1/evaluations/run', {
     agent_id: body.agent_id,
     dataset_id: body.dataset_id,
-    framework: body.framework || 'vertex',
+    framework: body.framework || 'deepeval',
     metrics: body.metrics,
     name: body.name,
   })

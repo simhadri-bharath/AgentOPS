@@ -49,16 +49,23 @@ export function passRateFromAggregates(aggregates = {}) {
 }
 
 /** Mirrors backend compute_aggregates per-sample pass logic. */
-export function samplePassed(scores = {}) {
-  if (scores.invocation_error) return false
-  const em = scores.exact_match
-  const ce = scores.contains_expected
-  const rn = scores.response_nonempty
-  if (em === 1 || em === 1.0) return true
-  if (ce === 1 || ce === 1.0) return true
-  if (rn === 1 || rn === 1.0) return true
-  if (em == null && ce == null && scores.actual_output_nonempty) return true
-  return false
+/**
+ * Whether a sample passed. Mirrors the backend rule in runner.aggregate():
+ * the mean of the sample's scores must clear the threshold.
+ *
+ * The previous version returned true for any non-empty response, which is the
+ * rule the backend no longer uses -- so the table would show a green tick on
+ * samples the run counted as failures.
+ */
+export const PASS_THRESHOLD = 0.7
+
+export function samplePassed(scores = {}, state = 'SUCCESS') {
+  // An invocation that never succeeded is not a quality failure, and is not
+  // scored at all.
+  if (state && state !== 'SUCCESS') return false
+  const values = Object.values(scores).filter((v) => typeof v === 'number')
+  if (!values.length) return false
+  return values.reduce((a, b) => a + b, 0) / values.length >= PASS_THRESHOLD
 }
 
 export function formatLatencyMs(ms) {
@@ -94,16 +101,11 @@ export function partitionSampleScores(scores = {}) {
 export function formatMetricScore(key, value) {
   if (value == null) return '—'
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
-  if (key === 'response_length' && typeof value === 'number') {
-    return `${value} chars`
-  }
-  if (key === 'latency_ms' && typeof value === 'number') {
-    return formatLatencyMs(value)
-  }
   if (typeof value === 'number') {
-    if (value === 0 || value === 1) {
-      return value === 1 ? 'Pass (1.0)' : 'Fail (0.0)'
-    }
+    // Every registry metric is 0..1 and higher-is-better, so a percentage is
+    // always the right rendering. Binary values are shown as percentages too
+    // rather than "Pass/Fail", which would imply a threshold that is not
+    // per-metric.
     if (value >= 0 && value <= 1) {
       return `${(value * 100).toFixed(1)}%`
     }
@@ -115,7 +117,6 @@ export function formatMetricScore(key, value) {
 /** 0–1 score for metric progress bars; null if not applicable. */
 export function metricScoreRatio(key, value) {
   if (value == null || typeof value !== 'number') return null
-  if (key === 'response_length' || key === 'latency_ms') return null
   if (value >= 0 && value <= 1) return value
   return null
 }

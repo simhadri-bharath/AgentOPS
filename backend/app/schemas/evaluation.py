@@ -35,6 +35,17 @@ JOB_STATUSES: list[str] = ["draft", "queued", "running", "completed", "failed"]
 FRAMEWORKS: list[str] = ["deepeval", "deterministic"]
 
 
+# Existing rows store "vertex"/"vertex_ai" from before the rename; those runs did
+# execute, so they stay readable and re-runnable. "ragas" is deliberately absent:
+# it was selectable while uninstalled with zero code, so it must be rejected
+# rather than quietly treated as DeepEval.
+LEGACY_FRAMEWORK_ALIASES = {"vertex": "deepeval", "vertex_ai": "deepeval"}
+
+
+def normalize_framework(framework: str) -> str:
+    return LEGACY_FRAMEWORK_ALIASES.get((framework or "").lower(), (framework or "").lower())
+
+
 def resolve_metrics(metrics: list[str]) -> list[str]:
     """Validate a metric selection. Raises UnknownMetricError on anything unknown."""
     return validate_metrics(metrics)
@@ -43,7 +54,7 @@ def resolve_metrics(metrics: list[str]) -> list[str]:
 class EvaluationRunCreate(ORMBase):
     agent_id: uuid.UUID
     dataset_id: uuid.UUID
-    framework: str = "vertex"
+    framework: str = "deepeval"
     metrics: list[str] = Field(default_factory=list)
     name: str | None = None
 
@@ -53,7 +64,7 @@ class EvaluationJobCreate(ORMBase):
 
     agent_id: uuid.UUID
     dataset_id: uuid.UUID
-    framework: str = "vertex"
+    framework: str = "deepeval"
     metrics: list[str] = Field(default_factory=list)
     name: str | None = None
 
@@ -63,7 +74,7 @@ class EvaluationJobUpdate(ORMBase):
 
     agent_id: uuid.UUID
     dataset_id: uuid.UUID
-    framework: str = "vertex"
+    framework: str = "deepeval"
     metrics: list[str] = Field(default_factory=list)
 
 

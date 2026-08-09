@@ -15,19 +15,6 @@ export const FRAMEWORKS = [
   },
 ]
 
-export const METRIC_LABELS = {
-  groundedness: 'Groundedness',
-  relevance: 'Relevance',
-  correctness: 'Correctness',
-  fluency: 'Fluency',
-  faithfulness: 'Faithfulness',
-  answer_relevancy: 'Answer relevancy',
-  context_precision: 'Context precision',
-  context_recall: 'Context recall',
-  hallucination: 'Hallucination',
-  toxicity: 'Toxicity',
-}
-
 export const STEPS = [
   { id: 1, label: 'Select Agent' },
   { id: 2, label: 'Select Dataset' },
@@ -36,28 +23,34 @@ export const STEPS = [
 ]
 
 /** Map stored framework values (e.g. vertex_ai) to UI framework ids. */
+// Display names for the metrics the backend registry actually serves. The
+// previous table labelled fifteen metrics that no longer exist (trajectory
+// aliases, final_response_*, multi-turn, custom_llm_metric) and none of the
+// current ones. metricLabel falls back to the humanised id for anything new.
 export const METRIC_SUMMARY_LABELS = {
   exact_match: 'Exact Match',
   contains_expected: 'Contains Expected',
   response_nonempty: 'Response Non-Empty',
-  response_length: 'Response Length',
-  latency_ms: 'Latency',
-  agent_trajectory_exact_match: 'Trajectory Exact Match',
-  agent_trajectory_in_order_match: 'Trajectory In-order Match',
-  agent_trajectory_any_order_match: 'Trajectory Any-order Match',
-  agent_trajectory_precision: 'Trajectory Precision',
-  agent_trajectory_recall: 'Trajectory Recall',
-  final_response_quality: 'Final Response Quality',
-  hallucination: 'Hallucination',
-  tool_use_quality: 'Tool Use Quality',
-  safety: 'Safety',
-  final_response_match: 'Final Response Match',
-  final_response_ref_free: 'Final Response Ref-Free',
-  agent_multi_turn_task_success: 'Multi-Turn Task Success',
-  agent_multi_turn_tool_use_quality: 'Multi-Turn Tool Use Quality',
-  agent_multi_turn_trajectory_quality: 'Multi-Turn Trajectory Quality',
-  custom_llm_metric: 'Custom LLM Metric',
-  custom_code_metric: 'Custom Code Metric',
+  argument_match: 'Tool Argument Match',
+  trajectory_in_order_match: 'Trajectory In-order Match',
+  trajectory_any_order_match: 'Trajectory Any-order Match',
+  trajectory_precision: 'Trajectory Precision',
+  trajectory_recall: 'Trajectory Recall',
+  trace_tool_success_rate: 'Tool Success Rate',
+  trace_no_redundant_calls: 'No Redundant Tool Calls',
+  trace_no_loop: 'No Tool Loop',
+  trace_step_efficiency: 'Step Efficiency',
+  trace_answered: 'Answered',
+  answer_relevancy: 'Answer Relevancy',
+  faithfulness: 'Faithfulness',
+  contextual_precision: 'Contextual Precision',
+  contextual_recall: 'Contextual Recall',
+  hallucination: 'Hallucination (inverted)',
+  toxicity: 'Non-toxic (inverted)',
+  bias: 'Unbiased (inverted)',
+  tool_correctness: 'Tool Correctness',
+  task_completion: 'Task Completion',
+  correctness: 'Correctness',
 }
 
 // The metric list is served by the backend registry. This is only the
@@ -84,5 +77,5 @@ export function frameworkLabel(id) {
 }
 
 export function metricLabel(id) {
-  return METRIC_SUMMARY_LABELS[id] || METRIC_LABELS[id] || id.replace(/_/g, ' ')
+  return METRIC_SUMMARY_LABELS[id] || id.replace(/_/g, ' ')
 }

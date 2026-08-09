@@ -64,7 +64,7 @@ export default function JobDetailsPage() {
   const [form, setForm] = useState({
     agent_id: '',
     dataset_id: '',
-    framework: 'vertex',
+    framework: 'deepeval',
     metrics: [],
   })
 
@@ -647,7 +647,7 @@ export default function JobDetailsPage() {
                     </Td>
                     <Td>{formatLatencyMs(row.latency_ms)}</Td>
                     <Td>
-                      {samplePassed(row.scores) ? (
+                      {samplePassed(row.scores, row.state) ? (
                         <Badge variant="green">Pass</Badge>
                       ) : (
                         <Badge variant="red">Fail</Badge>

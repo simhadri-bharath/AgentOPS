@@ -285,10 +285,10 @@ export default function AgentDetail() {
             <KVRow label="Region" value={agent.region} />
             <KVRow label="Project" value={agent.project} />
             <KVRow label="Source" value={agent.source} />
-            <KVRow label="Agent type" value={raw.agent_type || 'unknown'} />
-            <KVRow label="Capabilities" value={capabilities} />
-            <KVRow label="Environment" value={raw.environment || 'unknown'} />
-            <KVRow label="Purpose" value={raw.purpose || '—'} />
+            <KVRow label="Agent type" value={agent.agentType} />
+            <KVRow label="Capabilities" value={agent.capabilities.join(', ') || '—'} />
+            <KVRow label="Environment" value={agent.environment} />
+            <KVRow label="Purpose" value={agent.purpose || '—'} />
             <KVRow label="Tools" value={agentTools} isLast />
           </Card>
 

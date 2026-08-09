@@ -112,7 +112,7 @@ export default function Results() {
 
   const filteredItems = useMemo(() => {
     return items.filter((row) => {
-      const passed = samplePassed(row.scores)
+      const passed = samplePassed(row.scores, row.state)
       if (filter === 'passed') return passed
       if (filter === 'failed') return !passed
       return true
@@ -255,7 +255,7 @@ export default function Results() {
             </THead>
             <tbody>
               {filteredItems.map((row) => {
-                const passed = samplePassed(row.scores)
+                const passed = samplePassed(row.scores, row.state)
                 return (
                   <TRow
                     key={row.id}
