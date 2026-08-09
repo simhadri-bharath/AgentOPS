@@ -74,7 +74,12 @@ export default function Logs() {
 
   return (
     <div>
-      <PageHeader title="Logs" subtitle="Centralized logs from Cloud Run, GKE, and Vertex AI — via Cloud Logging" />
+      {/* Cloud Logging is not called anywhere; these lines are derived from
+          Cloud Trace spans, so the subtitle says so. */}
+      <PageHeader
+        title="Logs"
+        subtitle="Execution log derived from Cloud Trace spans — not Cloud Logging"
+      />
 
       <Card>
         <div className="flex items-center gap-2 flex-wrap mb-4">

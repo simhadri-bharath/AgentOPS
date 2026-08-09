@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.core.database import close_db, get_engine, get_session_factory
 from app.core.logging import get_logger, setup_logging
 from app.services.discovery.vertex_ai import VertexAIDiscoveryService
+from app.services.evaluation.sweeper import sweep_orphaned_runs
 from app.services.gcp.auth import validate_adc_credentials
 from app.services.gcp.eval_deps import check_evals_dependencies
 
@@ -84,6 +85,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             extra={"component": "startup"},
         )
 
+    # BackgroundTasks die with the process, so anything left "running" from a
+    # previous boot is orphaned and will never complete. Mark it failed rather
+    # than leaving a job that appears to be in progress forever.
+    try:
+        factory = get_session_factory()
+        async with factory() as session:
+            swept = await sweep_orphaned_runs(session)
+            await session.commit()
+        if swept:
+            logger.warning(
+                "Marked %s orphaned evaluation run(s) as failed after restart",
+                swept,
+                extra={"component": "startup"},
+            )
+    except Exception as exc:
+        logger.warning(
+            "Could not sweep orphaned runs: %s", exc, extra={"component": "startup"}
+        )
+
     eval_ok, eval_err = check_evals_dependencies()
     if eval_ok:
         logger.info("Vertex AI evaluation dependencies OK", extra={"component": "startup"})
@@ -111,10 +131,15 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
 
+    # Wildcard origins with credentials is rejected by browsers anyway, and the
+    # old production branch was an empty list, which blocked every cross-origin
+    # call. Origins come from config, and credentials are only offered when the
+    # origins are explicit.
+    origins = settings.cors_origin_list
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.is_development else [],
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials="*" not in origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -159,10 +184,13 @@ def create_app() -> FastAPI:
             request.url.path,
             extra={"component": "http"},
         )
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error", "message": str(exc)},
-        )
+        # The exception text can carry connection strings and resource names, so
+        # it is logged rather than returned. The request id ties the response to
+        # the log line.
+        body: dict[str, str] = {"detail": "Internal server error"}
+        if settings.is_development:
+            body["message"] = str(exc)
+        return JSONResponse(status_code=500, content=body)
 
     app.include_router(health_routes.router)
     app.include_router(api_router, prefix="/api/v1")

@@ -55,6 +55,20 @@ class Settings(BaseSettings):
     )
     redteam_use_llm_judge: bool = Field(default=True, alias="REDTEAM_USE_LLM_JUDGE")
 
+    cors_origins: str = Field(default="", alias="CORS_ORIGINS")
+    # Runs left in `running` longer than this after a restart cannot still be
+    # in progress: the background task that owned them is gone.
+    orphaned_run_timeout_minutes: int = Field(
+        default=60, alias="ORPHANED_RUN_TIMEOUT_MINUTES"
+    )
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        explicit = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        if explicit:
+            return explicit
+        return ["*"] if self.is_development else []
+
     @property
     def is_development(self) -> bool:
         return self.app_env.lower() in ("development", "dev", "local")
