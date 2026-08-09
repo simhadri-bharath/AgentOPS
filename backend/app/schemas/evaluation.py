@@ -2,92 +2,42 @@
 
 import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import Field
 
 from app.schemas.common import ORMBase
+from app.services.evaluation.metric_registry import (
+    METRIC_REGISTRY,
+    UnknownMetricError,
+    validate_metrics,
+)
 
-MetricName = Literal[
-    "exact_match",
-    "contains_expected",
-    "response_length",
-    "response_nonempty",
-    "latency_ms",
-]
+# The old FRAMEWORK_METRIC_EXECUTION_MAP is gone. It rewrote every named metric
+# into a string comparison before the run was queued -- faithfulness became
+# contains_expected, toxicity became response_nonempty -- so users read real
+# metric names over str.__contains__ results. Metrics now come from
+# METRIC_REGISTRY, and an unknown one is rejected rather than degraded.
 
-SUPPORTED_METRICS: list[str] = [
-    "exact_match",
-    "contains_expected",
-    "response_length",
-    "response_nonempty",
-    "latency_ms",
-]
+SUPPORTED_METRICS: list[str] = sorted(METRIC_REGISTRY)
 
 DEFAULT_PROMPT_ONLY_METRICS: list[str] = [
     "response_nonempty",
-    "response_length",
-    "latency_ms",
+    "answer_relevancy",
+    "trace_answered",
+    "trace_tool_success_rate",
 ]
 
 JOB_STATUSES: list[str] = ["draft", "queued", "running", "completed", "failed"]
 
-FRAMEWORKS: list[str] = ["vertex", "ragas", "deepeval"]
+# RAGAS is deliberately absent: it is not installed and has no code, and
+# offering it as a selectable framework was the same lie as the metric map.
+FRAMEWORKS: list[str] = ["deepeval", "deterministic"]
 
-FRAMEWORK_METRICS: dict[str, list[str]] = {
-    "vertex": [
-        "groundedness", "relevance", "correctness", "fluency",
-        "exact_match", "contains_expected", "response_length", "response_nonempty", "latency_ms",
-        "agent_trajectory_exact_match", "agent_trajectory_in_order_match", "agent_trajectory_any_order_match",
-        "agent_trajectory_precision", "agent_trajectory_recall",
-        "final_response_quality", "hallucination", "tool_use_quality", "safety", "final_response_match", "final_response_ref_free",
-        "agent_multi_turn_task_success", "agent_multi_turn_tool_use_quality", "agent_multi_turn_trajectory_quality",
-        "custom_llm_metric", "custom_code_metric"
-    ],
-    "ragas": [
-        "faithfulness", "answer_relevancy", "context_precision", "context_recall",
-        "exact_match", "contains_expected", "response_length", "response_nonempty", "latency_ms",
-        "agent_trajectory_exact_match", "agent_trajectory_in_order_match", "agent_trajectory_any_order_match",
-        "agent_trajectory_precision", "agent_trajectory_recall",
-        "final_response_quality", "hallucination", "tool_use_quality", "safety", "final_response_match", "final_response_ref_free",
-        "agent_multi_turn_task_success", "agent_multi_turn_tool_use_quality", "agent_multi_turn_trajectory_quality",
-        "custom_llm_metric", "custom_code_metric"
-    ],
-    "deepeval": [
-        "hallucination", "answer_relevancy", "toxicity",
-        "exact_match", "contains_expected", "response_length", "response_nonempty", "latency_ms",
-        "agent_trajectory_exact_match", "agent_trajectory_in_order_match", "agent_trajectory_any_order_match",
-        "agent_trajectory_precision", "agent_trajectory_recall",
-        "final_response_quality", "tool_use_quality", "safety", "final_response_match", "final_response_ref_free",
-        "agent_multi_turn_task_success", "agent_multi_turn_tool_use_quality", "agent_multi_turn_trajectory_quality",
-        "custom_llm_metric", "custom_code_metric"
-    ],
-}
 
-# Map UI framework metric names to executable backend metrics (Vertex MVP)
-FRAMEWORK_METRIC_EXECUTION_MAP: dict[str, str] = {
-    "groundedness": "contains_expected",
-    "relevance": "response_nonempty",
-    "correctness": "exact_match",
-    "fluency": "response_length",
-    "faithfulness": "contains_expected",
-    "answer_relevancy": "response_nonempty",
-    "context_precision": "exact_match",
-    "context_recall": "contains_expected",
-    "toxicity": "response_nonempty",
-
-    # New Metric Maps to executable stubs
-    "agent_trajectory_exact_match": "exact_match",
-    "agent_trajectory_in_order_match": "exact_match",
-    "agent_trajectory_any_order_match": "exact_match",
-    "agent_trajectory_precision": "contains_expected",
-    "agent_trajectory_recall": "contains_expected",
-    "agent_multi_turn_task_success": "exact_match",
-    "agent_multi_turn_tool_use_quality": "contains_expected",
-    "agent_multi_turn_trajectory_quality": "contains_expected",
-    "custom_llm_metric": "contains_expected",
-    "custom_code_metric": "exact_match",
-}
+def resolve_metrics(metrics: list[str]) -> list[str]:
+    """Validate a metric selection. Raises UnknownMetricError on anything unknown."""
+    return validate_metrics(metrics)
 
 
 class EvaluationRunCreate(ORMBase):
@@ -131,6 +81,10 @@ class EvaluationJobRead(ORMBase):
     status: str
     metrics: list[str]
     aggregate_scores: dict[str, Any] = Field(default_factory=dict)
+    # What produced these numbers, snapshotted at queue time so a score from
+    # months ago is still interpretable.
+    run_config: dict[str, Any] = Field(default_factory=dict)
+    usage: dict[str, Any] = Field(default_factory=dict)
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error_message: str | None = None
@@ -156,6 +110,18 @@ class EvaluationResultRead(ORMBase):
     actual_output: str | None = None
     scores: dict[str, Any] = Field(default_factory=dict)
     latency_ms: int | None = None
+    # Why a metric has no score. "Unavailable, and here is what is missing" is a
+    # different answer from "the judge errored", and neither is a score of zero.
+    metric_explanations: dict[str, Any] = Field(default_factory=dict)
+    metric_unavailable: dict[str, Any] = Field(default_factory=dict)
+    metric_errors: dict[str, Any] = Field(default_factory=dict)
+    # Per-sub-agent scores: which component dragged the sample down.
+    span_scores: list[Any] = Field(default_factory=list)
+    trace: dict[str, Any] = Field(default_factory=dict)
+    state: str = "SUCCESS"
+    error_message: str | None = None
+    tokens_in: int = 0
+    tokens_out: int = 0
     created_at: datetime
 
 
@@ -165,46 +131,6 @@ class EvaluationResultsResponse(ORMBase):
     aggregate_scores: dict[str, Any]
     items: list[EvaluationResultRead]
     total: int
-
-
-VERTEX_MANAGED_METRICS = {
-    "final_response_quality",
-    "hallucination",
-    "tool_use_quality",
-    "safety",
-    "final_response_match",
-    "final_response_ref_free",
-    "agent_multi_turn_task_success",        
-    "agent_multi_turn_tool_use_quality",    
-    "agent_multi_turn_trajectory_quality",
-}
-
-
-# ❌ REPLACE the entire resolve_executable_metrics function
-
-def resolve_executable_metrics(framework: str, metrics: list[str]) -> list[str]:
-    """Map framework-specific metric names to executable backend metrics."""
-    if framework == "vertex_ai":
-        framework = "vertex"
-
-    allowed = set(FRAMEWORK_METRICS.get(framework, SUPPORTED_METRICS))
-    selected = [m for m in metrics if m in allowed or m in SUPPORTED_METRICS]
-    if not selected:
-        return list(SUPPORTED_METRICS)
-
-    executable: list[str] = []
-    for metric in selected:
-        # Vertex managed metrics pass through as-is — handled by google-genai SDK in runner
-        if metric in VERTEX_MANAGED_METRICS:
-            executable.append(metric)
-        elif metric in SUPPORTED_METRICS:
-            executable.append(metric)
-        else:
-            mapped = FRAMEWORK_METRIC_EXECUTION_MAP.get(metric)
-            if mapped and mapped not in executable:
-                executable.append(mapped)
-
-    return executable or list(SUPPORTED_METRICS)
 
 
 def evaluation_run_from_orm(run: Any) -> EvaluationJobRead:
@@ -217,6 +143,8 @@ def evaluation_run_from_orm(run: Any) -> EvaluationJobRead:
         status=run.status,
         metrics=list(run.metrics or []),
         aggregate_scores=dict(run.aggregate_scores or {}),
+        run_config=dict(getattr(run, "run_config", None) or {}),
+        usage=dict(getattr(run, "usage", None) or {}),
         started_at=run.started_at,
         completed_at=run.completed_at,
         error_message=run.error_message,
@@ -235,5 +163,14 @@ def evaluation_result_from_orm(row: Any) -> EvaluationResultRead:
         actual_output=row.actual_output,
         scores=dict(row.scores or {}),
         latency_ms=row.latency_ms,
+        metric_explanations=dict(row.metric_explanations or {}),
+        metric_unavailable=dict(row.metric_unavailable or {}),
+        metric_errors=dict(row.metric_errors or {}),
+        span_scores=list(row.span_scores or []),
+        trace=dict(row.trace or {}),
+        state=row.state or "SUCCESS",
+        error_message=row.error_message,
+        tokens_in=row.tokens_in or 0,
+        tokens_out=row.tokens_out or 0,
         created_at=row.created_at,
     )

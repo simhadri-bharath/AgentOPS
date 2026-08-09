@@ -173,6 +173,79 @@ export default function EvaluationSampleDetail() {
             </div>
           )}
         </Card>
+
+        {Object.keys(result.metric_unavailable || {}).length > 0 && (
+          <Card>
+            <CardHeader title="Not scored" />
+            <div className="px-3 pb-3 space-y-2">
+              {Object.entries(result.metric_unavailable).map(([key, reason]) => (
+                <div key={key} className="text-[12px]">
+                  <span className="font-medium text-gray-800">{metricLabel(key)}</span>
+                  {/* A reason, not a silent zero: unavailable and failed are
+                      different outcomes and neither is a score. */}
+                  <div className="text-gray-500">{reason}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {Object.keys(result.metric_errors || {}).length > 0 && (
+          <Card>
+            <CardHeader title="Judge errors" />
+            <div className="px-3 pb-3 space-y-2">
+              {Object.entries(result.metric_errors).map(([key, err]) => (
+                <div key={key} className="text-[12px]">
+                  <span className="font-medium text-gray-800">{metricLabel(key)}</span>
+                  <div className="text-red-700">{err}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {(result.span_scores || []).length > 0 && (
+          <Card>
+            <CardHeader title="Per sub-agent scores" />
+            <div className="px-3 pb-3">
+              {/* An end-to-end score says something broke; this says which
+                  sub-agent broke it. */}
+              {(result.span_scores || []).map((span) => (
+                <div key={span.span_id} className="border-b border-gray-100 py-2 last:border-b-0">
+                  <div className="text-[12px] font-medium text-gray-900 mb-1">
+                    {span.author}
+                    <span className="ml-2 text-[10px] text-gray-400">{span.kind}</span>
+                  </div>
+                  {Object.entries(span.scores || {}).map(([key, value]) => (
+                    <MetricScoreRow
+                      key={key}
+                      metricKey={key}
+                      value={value}
+                      explanation={(span.explanations || {})[key]}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {(result.trace?.agent_path || []).length > 0 && (
+          <Card>
+            <CardHeader title="Trace" />
+            <div className="px-3 pb-3 text-[12px] text-gray-700 space-y-1">
+              <div>Agent path: {result.trace.agent_path.join(' → ')}</div>
+              <div>
+                Tools: {(result.trace.trajectory || []).map((t) => t.name).join(', ') || 'none'}
+              </div>
+              <div>
+                Retrieved documents: {(result.trace.retrieval_context || []).length} · tokens{' '}
+                {result.tokens_in} in / {result.tokens_out} out
+              </div>
+              <div>State: {result.state}</div>
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   )

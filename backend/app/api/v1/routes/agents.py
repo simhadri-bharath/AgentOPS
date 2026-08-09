@@ -21,6 +21,7 @@ from app.schemas.agent import (
     AgentRead,
 )
 from app.schemas.evaluation import EvaluationRunListResponse, evaluation_run_from_orm
+from app.services.evaluation.profiles import recommend
 from app.services.evaluation.trace_health import compute_trace_health
 from app.services.gcp.agent_engine_client import (
     INVOCATION_CLASS_METHOD,
@@ -116,6 +117,18 @@ async def patch_agent(
         display_name=body.display_name,
     )
     return AgentRead.from_orm_agent(agent)
+
+
+@router.get("/{agent_id}/recommended-metrics")
+async def get_recommended_metrics(
+    agent_id: uuid.UUID,
+    repo: AgentRepository = Depends(get_agent_repository),
+) -> dict:
+    """The metric pack that suits what this agent is for."""
+    agent = await repo.get_agent(agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+    return recommend(agent.agent_type, list(agent.capabilities or []))
 
 
 @router.get("/{agent_id}/metadata")

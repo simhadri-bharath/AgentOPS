@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Briefcase, Check, ChevronRight, Loader2 } from 'lucide-react'
 import Btn from '../components/Btn'
@@ -9,7 +9,6 @@ import FrameworkStep from '../components/evaluation/FrameworkStep'
 import MetricsStep from '../components/evaluation/MetricsStep'
 import { useAgents } from '../context/AgentsContext'
 import * as evaluationsApi from '../api/evaluations'
-import { FRAMEWORK_METRICS, DEFAULT_METRICS_STATE } from '../lib/evaluationConstants'
 
 const STEPS = [
   { id: 1, title: 'Select Agent' },
@@ -46,7 +45,9 @@ export default function Evaluation() {
   const [selectedAgent, setSelectedAgent] = useState(null)
   const [selectedDataset, setSelectedDataset] = useState(null)
   const [selectedFramework, setSelectedFramework] = useState(null)
-  const [metricsOn, setMetricsOn] = useState(DEFAULT_METRICS_STATE)
+  // Starts empty: the metric pack is chosen from the agent's profile once an
+  // agent is selected, rather than from a hardcoded default list.
+  const [metricsOn, setMetricsOn] = useState({})
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
 
@@ -58,23 +59,14 @@ export default function Evaluation() {
     }
   }, [searchParams, agents])
 
-  const selectedMetrics = useMemo(() => {
-    return Object.entries(metricsOn)
-      .filter(([id, on]) => {
-        if (!on) return false
-        if (id === 'include_multi_turn') return false
-        // Filter out multi-turn metrics if the control toggle is disabled
-        if (
-          id === 'agent_multi_turn_task_success' ||
-          id === 'agent_multi_turn_tool_use_quality' ||
-          id === 'agent_multi_turn_trajectory_quality'
-        ) {
-          return !!metricsOn['include_multi_turn']
-        }
-        return true
-      })
-      .map(([id]) => id)
-  }, [metricsOn])
+  const selectedMetrics = useMemo(
+    () => Object.entries(metricsOn).filter(([, on]) => on).map(([id]) => id),
+    [metricsOn],
+  )
+
+  const applyRecommended = useCallback((metrics) => {
+    setMetricsOn(Object.fromEntries((metrics || []).map((m) => [m, true])))
+  }, [])
 
   const meta = STEP_META[step]
 
@@ -159,6 +151,7 @@ export default function Evaluation() {
           <MetricsStep
             selectedFramework={selectedFramework}
             metricsOn={metricsOn}
+            onApplyRecommended={applyRecommended}
             onToggleMetric={toggleMetric}
             selectedAgent={selectedAgent}
             selectedDataset={selectedDataset}

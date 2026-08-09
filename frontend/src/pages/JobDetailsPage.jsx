@@ -11,7 +11,7 @@ import { useAgents } from '../context/AgentsContext'
 import * as datasetsApi from '../api/datasets'
 import * as evaluationsApi from '../api/evaluations'
 import {
-  APPLICATION_METRICS,
+  FALLBACK_METRIC_IDS,
   frameworkLabel,
   FRAMEWORKS,
   metricLabel,
@@ -40,6 +40,14 @@ function jobToForm(jobData) {
 }
 
 export default function JobDetailsPage() {
+  // Metric names come from the backend registry so this page cannot drift from
+  // what the runner will actually accept.
+  const [metricCatalogueIds, setMetricCatalogueIds] = useState(FALLBACK_METRIC_IDS)
+  useEffect(() => {
+    evaluationsApi.fetchMetricCatalogue()
+      .then((d) => setMetricCatalogueIds((d.items || []).map((m) => m.name)))
+      .catch(() => {})
+  }, [])
   const { jobId } = useParams()
   const nav = useNavigate()
   const { agents } = useAgents()
@@ -388,7 +396,7 @@ export default function JobDetailsPage() {
                 Metrics
               </label>
               <div className="grid max-h-[168px] grid-cols-2 gap-x-3 gap-y-1 overflow-y-auto pr-1">
-                {APPLICATION_METRICS.map((metric) => (
+                {metricCatalogueIds.map((metric) => (
                   <label
                     key={metric}
                     className={`flex items-center gap-1.5 text-[11px] leading-tight text-gray-700 ${

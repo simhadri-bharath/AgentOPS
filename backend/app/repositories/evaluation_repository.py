@@ -120,12 +120,18 @@ class EvaluationRepository:
         aggregate_scores: dict[str, Any] | None = None,
         mark_started: bool = False,
         mark_completed: bool = False,
+        run_config: dict[str, Any] | None = None,
+        usage: dict[str, Any] | None = None,
     ) -> EvaluationRun:
         run.status = status
         if error_message is not None:
             run.error_message = error_message
         if aggregate_scores is not None:
             run.aggregate_scores = aggregate_scores
+        if run_config is not None:
+            run.run_config = run_config
+        if usage is not None:
+            run.usage = usage
         now = datetime.now(timezone.utc)
         if mark_started and run.started_at is None:
             run.started_at = now
@@ -145,6 +151,15 @@ class EvaluationRepository:
         actual_output: str | None,
         scores: dict[str, Any],
         latency_ms: int | None,
+        metric_explanations: dict[str, Any] | None = None,
+        metric_unavailable: dict[str, Any] | None = None,
+        metric_errors: dict[str, Any] | None = None,
+        span_scores: list[Any] | None = None,
+        trace: dict[str, Any] | None = None,
+        state: str = "SUCCESS",
+        error_message: str | None = None,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
     ) -> EvaluationResult:
         row = EvaluationResult(
             evaluation_run_id=evaluation_run_id,
@@ -154,6 +169,15 @@ class EvaluationRepository:
             actual_output=actual_output,
             scores=scores,
             latency_ms=latency_ms,
+            metric_explanations=metric_explanations or {},
+            metric_unavailable=metric_unavailable or {},
+            metric_errors=metric_errors or {},
+            span_scores=span_scores or [],
+            trace=trace or {},
+            state=state,
+            error_message=error_message,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
         )
         self._session.add(row)
         await self._session.flush()

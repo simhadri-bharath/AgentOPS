@@ -33,6 +33,17 @@ class EvaluationRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # Reproducibility snapshot, taken at queue time and never re-read from live
+    # config. Without it, comparing 0.82 today to 0.71 in three months says
+    # nothing about the agent.
+    run_config: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}", default=dict
+    )
+    # Per-run cost and usage, so per-span judging does not surprise anyone.
+    usage: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}", default=dict
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

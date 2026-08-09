@@ -1,22 +1,193 @@
-"""Evaluation run orchestration."""
+"""Evaluation orchestration.
+
+load -> invoke -> normalize -> build cases -> group metrics by executor ->
+gather -> aggregate -> persist.
+
+Replaces a 451-line method that inlined imports, two metric dictionaries, a
+nested field-extraction closure, DataFrame assembly, two SDK code paths and the
+database writes.
+"""
 
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.repositories.agent_repository import AgentRepository
 from app.repositories.dataset_repository import DatasetRepository
 from app.repositories.evaluation_repository import EvaluationRepository
 from app.services.datasets.parser import parse_dataset_file
-from app.services.evaluation.agent_invoker import AgentInvoker
-from app.services.evaluation.evaluator import SampleEvaluator
-from app.services.evaluation.metrics import compute_aggregates
+from app.services.evaluation.executors.deepeval_exec import (
+    MetricOutcome,
+    run_deepeval_batch,
+)
+from app.services.evaluation.executors.deterministic import (
+    run_deterministic,
+    run_trace_health,
+)
+from app.services.evaluation.judge import (
+    estimate_cost_usd,
+    framework_versions,
+    judge_info,
+)
+from app.services.evaluation.metric_registry import (
+    DEEPEVAL,
+    DETERMINISTIC,
+    METRIC_CONFIG_VERSION,
+    TRACE_HEALTH,
+    group_by_executor,
+    validate_metrics,
+)
+from app.services.evaluation.trace_model import (
+    EvaluationCase,
+    InvocationState,
+    ToolCall,
+)
+from app.services.gcp.agent_engine_client import (
+    INVOCATION_CLASS_METHOD,
+    INVOCATION_ENDPOINT,
+)
+from app.services.invokers.agent_engine import AgentEngineInvoker, InvokeOutcome
 
 logger = get_logger(__name__)
+
+
+def _tool_calls(raw: Any) -> list[ToolCall]:
+    """Parse a dataset's reference_trajectory column into tool calls."""
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        import json
+
+        try:
+            raw = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return []
+    if isinstance(raw, dict):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+
+    calls: list[ToolCall] = []
+    for entry in raw:
+        if isinstance(entry, str):
+            calls.append(ToolCall(name=entry))
+        elif isinstance(entry, dict):
+            name = entry.get("name") or entry.get("tool") or entry.get("tool_name")
+            if name:
+                calls.append(
+                    ToolCall(
+                        name=str(name),
+                        args=dict(entry.get("args") or entry.get("input_parameters") or {}),
+                    )
+                )
+    return calls
+
+
+def _retrieval_from_row(row: dict[str, Any]) -> list[str]:
+    value = row.get("retrieval_context")
+    if isinstance(value, list):
+        return [str(v) for v in value if str(v).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    context = row.get("context")
+    return [context.strip()] if isinstance(context, str) and context.strip() else []
+
+
+def build_case(
+    index: int, row: dict[str, Any], outcome: InvokeOutcome
+) -> EvaluationCase:
+    """Fuse a dataset row with what the agent actually did."""
+    trace = outcome.trace
+    # Retrieval context from the live trace wins: it is what the agent really
+    # had in front of it, not what a dataset author guessed it would fetch.
+    retrieval = (
+        [doc.text for doc in trace.retrieval_context]
+        if trace and trace.retrieval_context
+        else _retrieval_from_row(row)
+    )
+    return EvaluationCase(
+        input=row.get("input", ""),
+        actual_output=outcome.output,
+        expected_output=(row.get("expected_output") or row.get("reference") or "") or None,
+        retrieval_context=retrieval,
+        predicted_trajectory=list(trace.trajectory) if trace else [],
+        reference_trajectory=_tool_calls(row.get("reference_trajectory")),
+        conversation=list(row.get("conversation") or []),
+        spans=list(trace.spans) if trace else [],
+        trace=trace,
+        sample_index=index,
+        state=outcome.state,
+        error=outcome.error,
+        latency_ms=outcome.latency_ms,
+        metadata={"category": row.get("category") or "uncategorized"},
+    )
+
+
+def aggregate(
+    cases: list[EvaluationCase], per_sample_scores: list[dict[str, float]]
+) -> dict[str, Any]:
+    """Averages per metric, plus the counts that make a run readable."""
+    totals: dict[str, list[float]] = {}
+    for scores in per_sample_scores:
+        for name, value in scores.items():
+            totals.setdefault(name, []).append(value)
+
+    aggregates: dict[str, Any] = {
+        f"avg_{name}": round(sum(values) / len(values), 4)
+        for name, values in totals.items()
+        if values
+    }
+    aggregates["metric_coverage"] = {
+        name: len(values) for name, values in totals.items()
+    }
+
+    latencies = [c.latency_ms for c in cases if c.latency_ms]
+    if latencies:
+        ordered = sorted(latencies)
+        aggregates["avg_latency_ms"] = int(sum(ordered) / len(ordered))
+        aggregates["p50_latency_ms"] = ordered[len(ordered) // 2]
+        aggregates["p95_latency_ms"] = ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))]
+
+    succeeded = [c for c in cases if c.state is InvocationState.SUCCESS]
+    aggregates["total_samples"] = len(cases)
+    aggregates["total_invoked"] = len(succeeded)
+    aggregates["total_failed"] = len(cases) - len(succeeded)
+    aggregates["empty_responses"] = sum(1 for c in cases if not c.actual_output.strip())
+
+    # "Passed" needs a threshold, so it only means something when a judged
+    # metric ran. Anything else would be the old rule where any non-empty
+    # response counted as a pass.
+    judged = [name for name in totals if name.startswith("avg_") is False]
+    scored_samples = [
+        scores for scores in per_sample_scores if scores
+    ]
+    if scored_samples:
+        settings = get_settings()
+        threshold = settings.metric_pass_threshold
+        passed = sum(
+            1
+            for scores in scored_samples
+            if scores and (sum(scores.values()) / len(scores)) >= threshold
+        )
+        aggregates["total_passed"] = passed
+        aggregates["total_scored"] = len(scored_samples)
+        aggregates["pass_threshold"] = threshold
+    aggregates["states"] = _state_counts(cases)
+    return aggregates
+
+
+def _state_counts(cases: list[EvaluationCase]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for case in cases:
+        key = case.state.value
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 class EvaluationRunner:
@@ -25,8 +196,6 @@ class EvaluationRunner:
         self._eval_repo = EvaluationRepository(session)
         self._agent_repo = AgentRepository(session)
         self._dataset_repo = DatasetRepository(session)
-        self._invoker = AgentInvoker()
-        self._evaluator = SampleEvaluator()
 
     async def run(self, evaluation_id: uuid.UUID) -> None:
         run = await self._eval_repo.get_run(evaluation_id)
@@ -34,417 +203,186 @@ class EvaluationRunner:
             logger.error("Evaluation run not found: %s", evaluation_id)
             return
 
-        logger.info(
-            "Evaluation started",
-            extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-        )
-
+        log_extra = {"component": "evaluation_runner", "evaluation_id": str(evaluation_id)}
         await self._eval_repo.update_run_status(run, "running", mark_started=True)
         await self._session.commit()
 
         try:
-            agent = await self._agent_repo.get_agent(run.agent_id)
-            if not agent:
-                raise ValueError(f"Agent {run.agent_id} not found")
+            agent, dataset, rows, metrics = await self._load(run)
+            snapshot = self._snapshot(agent, dataset, metrics)
+            await self._eval_repo.update_run_status(run, "running", run_config=snapshot)
+            await self._session.commit()
 
-            dataset = await self._dataset_repo.get(run.dataset_id)
-            if not dataset:
-                raise ValueError(f"Dataset {run.dataset_id} not found")
-
-            if not agent.endpoint_url:
-                raise ValueError("Agent has no endpoint_url (reasoning engine resource)")
-
-            validated = parse_dataset_file(dataset.file_path)
-            metric_names: list[str] = list(run.metrics or [])
-
-            # Single bulk run_inference call (notebook pattern)
-            invoke_results = await self._run_batch_invoke(
-                agent.endpoint_url, validated.rows
+            logger.info(
+                "Invoking agent for %s samples with metrics %s",
+                len(rows),
+                metrics,
+                extra=log_extra,
             )
+            invoker = AgentEngineInvoker(
+                tool_overrides=(agent.invocation_config or {}).get("tool_overrides")
+            )
+            outcomes = await invoker.batch_invoke(agent.endpoint_url, rows)
+            cases = [build_case(i, row, out) for i, (row, out) in enumerate(zip(rows, outcomes))]
 
-           # ── Vertex AI metric groups ───────────────────────────────────────
-            TRAJECTORY_METRICS = {
-                "trajectory_exact_match",
-                "trajectory_in_order_match",
-                "trajectory_any_order_match",
-                "trajectory_precision",
-                "trajectory_recall",
-                "agent_trajectory_exact_match",
-                "agent_trajectory_in_order_match",
-                "agent_trajectory_any_order_match",
-                "agent_trajectory_precision",
-                "agent_trajectory_recall",
-            }
+            per_sample = await self._score(metrics, cases)
 
-            # Map your UI metric names → EvalTask string literals
-            TRAJECTORY_METRIC_MAP: dict[str, str] = {
-                "trajectory_exact_match":          "trajectory_exact_match",
-                "trajectory_in_order_match":       "trajectory_in_order_match",
-                "trajectory_any_order_match":      "trajectory_any_order_match",
-                "trajectory_precision":            "trajectory_precision",
-                "trajectory_recall":               "trajectory_recall",
-                "agent_trajectory_exact_match":    "trajectory_exact_match",
-                "agent_trajectory_in_order_match": "trajectory_in_order_match",
-                "agent_trajectory_any_order_match":"trajectory_any_order_match",
-                "agent_trajectory_precision":      "trajectory_precision",
-                "agent_trajectory_recall":         "trajectory_recall",
-            }
-
-            # Managed metrics — handled via vertexai.Client + EvalCase (pre-computed responses)
-            MANAGED_METRICS = {
-                "final_response_quality",
-                "hallucination",
-                "tool_use_quality",
-                "safety",
-                "final_response_match",
-                "final_response_ref_free",
-                "agent_multi_turn_task_success",
-                "agent_multi_turn_tool_use_quality",
-                "agent_multi_turn_trajectory_quality",
-            }
-
-           # Maps UI metric name → publishers/google resource name for GCP
-            MANAGED_METRIC_MAP: dict[str, str] = {
-                "final_response_quality":              "publishers/google/evaluationMetrics/final_response_quality",
-                "hallucination":                       "publishers/google/evaluationMetrics/hallucination",
-                "tool_use_quality":                    "publishers/google/evaluationMetrics/tool_use_quality",
-                "safety":                              "publishers/google/evaluationMetrics/safety",
-                "final_response_match":                "publishers/google/evaluationMetrics/final_response_match",
-                "final_response_ref_free":             "publishers/google/evaluationMetrics/final_response_reference_free",
-                "agent_multi_turn_task_success":       "publishers/google/evaluationMetrics/multi_turn_task_success",
-                "agent_multi_turn_tool_use_quality":   "publishers/google/evaluationMetrics/multi_turn_tool_use_quality",
-                "agent_multi_turn_trajectory_quality": "publishers/google/evaluationMetrics/multi_turn_trajectory_quality",
-            }
-
-            selected_trajectory_metrics = [m for m in metric_names if m in TRAJECTORY_METRICS]
-            selected_managed_metrics    = [m for m in metric_names if m in MANAGED_METRICS]
-            managed_scores_by_index: dict[int, dict[str, Any]] = {}
-
-            needs_vertex_eval = bool(selected_trajectory_metrics or selected_managed_metrics)
-
-            if needs_vertex_eval:
-                import asyncio
-                import re
-                import pandas as pd
-                import vertexai
-                from vertexai import Client as VertexClient
-                from vertexai import types as vertex_types
-                from vertexai.preview.evaluation import EvalTask
-                from google.genai import types as genai_types
-                from app.core.config import get_settings
-
-                settings = get_settings()
-                project_id = agent.gcp_project or settings.gcp_project_id
-                region     = agent.region or settings.gcp_region
-                if not project_id:
-                    raise ValueError("GCP Project ID is required for Vertex AI evaluation")
-
-                vertexai.init(project=project_id, location=region)
-
-                # ── Extract data from invoke results ─────────────────────────
-                prompts:                  list[str] = []
-                responses:                list[str] = []
-                references:               list[Any] = []
-                predicted_trajectories:   list[Any] = []
-                reference_trajectories:   list[Any] = []
-
-                def _extract_field(raw: Any, fields: list[str]) -> Any:
-                    if raw is None:
-                        return None
-                    for f in fields:
-                        if isinstance(raw, pd.Series):
-                            val = raw.get(f)
-                            if val is not None and not (
-                                isinstance(val, float) and pd.isna(val)
-                            ):
-                                return val
-                        elif isinstance(raw, dict):
-                            if f in raw:
-                                return raw[f]
-                        elif hasattr(raw, f):
-                            try:
-                                return getattr(raw, f)
-                            except Exception:
-                                pass
-                    return None
-
-                for idx, row in enumerate(validated.rows):
-                    invoke = invoke_results[idx] if idx < len(invoke_results) else None
-
-                    context = (row.get("context") or "").strip()
-                    prompt  = row.get("input", "")
-                    prompts.append(
-                        f"Context:\n{context}\n\nUser:\n{prompt}" if context else prompt
-                    )
-
-                    actual = invoke.output if invoke and not invoke.error else ""
-                    responses.append(actual)
-
-                    raw_row = invoke.raw if invoke else None
-                    pred_traj = _extract_field(
-                        raw_row,
-                        ["predicted_trajectory", "agent_trajectory", "trajectory"]
-                    )
-                    predicted_trajectories.append(pred_traj)
-
-                    # reference_trajectory comes from the dataset row
-                    ref_traj = row.get("reference_trajectory")
-                    reference_trajectories.append(ref_traj)
-
-                    ref = row.get("reference") or row.get("expected_output")
-                    references.append(ref or "")
-
-                # ── Build DataFrame ───────────────────────────────────────────
-                eval_df_data: dict[str, Any] = {
-                    "prompt":   prompts,
-                    "response": responses,
-                }
-                if any(r for r in references):
-                    eval_df_data["reference"] = references
-                if any(t is not None for t in predicted_trajectories):
-                    eval_df_data["predicted_trajectory"] = predicted_trajectories
-                if any(t is not None for t in reference_trajectories):
-                    eval_df_data["reference_trajectory"] = reference_trajectories
-
-                eval_df = pd.DataFrame(eval_df_data)
-
-                logger.info(
-                    "Vertex eval DataFrame columns: %s rows: %s",
-                    list(eval_df.columns), len(eval_df),
-                    extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-                )
-
-                # ── PART A: Trajectory metrics via EvalTask ───────────────────
-                if selected_trajectory_metrics:
-                    traj_eval_metrics: list[Any] = []
-                    seen_traj: set[str] = set()
-                    for m in selected_trajectory_metrics:
-                        mapped = TRAJECTORY_METRIC_MAP.get(m)
-                        if mapped and mapped not in seen_traj:
-                            traj_eval_metrics.append(mapped)
-                            seen_traj.add(mapped)
-
-                    logger.info(
-                        "Running EvalTask trajectory metrics: %s",
-                        selected_trajectory_metrics,
-                        extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-                    )
-
-                    traj_eval_task = EvalTask(
-                        dataset=eval_df,
-                        metrics=traj_eval_metrics,
-                        experiment=f"agentops-traj-{str(run.id)[:8]}",
-                    )
-                    traj_result = await asyncio.to_thread(traj_eval_task.evaluate)
-                    traj_table  = traj_result.metrics_table
-
-                    for idx in range(len(traj_table)):
-                        result_row = traj_table.iloc[idx]
-                        row_scores = managed_scores_by_index.setdefault(idx, {})
-                        for m in selected_trajectory_metrics:
-                            mapped = TRAJECTORY_METRIC_MAP.get(m)
-                            if not mapped:
-                                continue
-                            score_col = (
-                                f"{mapped}/score"
-                                if f"{mapped}/score" in traj_table.columns
-                                else mapped
-                            )
-                            if score_col in traj_table.columns:
-                                val = result_row[score_col]
-                                if val is not None and not (
-                                    isinstance(val, float) and pd.isna(val)
-                                ):
-                                    row_scores[m] = float(val)
-
-                    logger.info(
-                        "EvalTask trajectory done. columns: %s",
-                        list(traj_table.columns),
-                        extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-                    )
-
-                # ── PART B: Managed metrics via client.evals.evaluate (no GCS) ─
-                if selected_managed_metrics:
-
-                    # Build Metric list using publishers/google resource names
-                    gcp_metrics = [
-                        vertex_types.Metric(
-                            name=m,
-                            metric_resource_name=MANAGED_METRIC_MAP[m],
-                        )
-                        for m in selected_managed_metrics
-                        if m in MANAGED_METRIC_MAP
-                    ]
-
-                    # Helper to wrap plain text into Content
-                    def _make_content(text: str) -> genai_types.Content:
-                        return genai_types.Content(
-                            parts=[genai_types.Part(text=text or "")]
-                        )
-
-                    # Build EvalCase list from pre-computed invoke_results
-                    eval_cases: list[vertex_types.EvalCase] = []
-                    for idx, row in enumerate(validated.rows):
-                        case_kwargs: dict[str, Any] = {
-                            "eval_case_id": str(idx),
-                            "prompt": _make_content(prompts[idx]),
-                            "responses": [
-                                vertex_types.ResponseCandidate(
-                                    response=_make_content(responses[idx])
-                                )
-                            ],
-                        }
-                        # Add reference if present for final_response_match
-                        ref = references[idx] if references and references[idx] else None
-                        if ref:
-                            case_kwargs["reference"] = vertex_types.ResponseCandidate(
-                                response=_make_content(ref)
-                            )
-                        eval_cases.append(vertex_types.EvalCase(**case_kwargs))
-
-                    eval_dataset = vertex_types.EvaluationDataset(
-                        eval_cases=eval_cases
-                    )
-
-                    logger.info(
-                        "Running managed metrics via client.evals.evaluate: %s  cases=%d",
-                        selected_managed_metrics,
-                        len(eval_cases),
-                        extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-                    )
-
-                    vertex_client = VertexClient(project=project_id, location=region)
-
-                    eval_result = await asyncio.to_thread(
-                        vertex_client.evals.evaluate,
-                        dataset=eval_dataset,
-                        metrics=gcp_metrics,
-                    )
-
-                    # Parse per-row scores into managed_scores_by_index
-                    for case_result in (eval_result.eval_case_results or []):
-                        case_idx = case_result.eval_case_index or 0
-                        candidates = case_result.response_candidate_results or []
-                        if not candidates:
-                            continue
-                        row_scores = managed_scores_by_index.setdefault(case_idx, {})
-                        for metric_key, metric_result in (
-                            candidates[0].metric_results or {}
-                        ).items():
-                            # Strip version suffix: "hallucination_v1" → "hallucination"
-                            norm = re.sub(r"_v\d+$", "", metric_key.lower())
-                            if metric_result.score is not None:
-                                row_scores[norm] = metric_result.score
-                            if metric_result.explanation:
-                                row_scores[f"{norm}_explanation"] = metric_result.explanation
-
-                    logger.info(
-                        "client.evals.evaluate completed. cases=%d",
-                        len(eval_result.eval_case_results or []),
-                        extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-                    )
-
-            # ── Per-sample scoring and DB save ────────────────────────────────
-            all_score_rows: list[dict[str, Any]] = []
-
-            for idx, row in enumerate(validated.rows):
-                invoke = invoke_results[idx] if idx < len(invoke_results) else None
-                if invoke is None:
-                    invoke_error = "No invocation result"
-                    actual = ""
-                    latency = None
-                else:
-                    invoke_error = invoke.error
-                    actual = invoke.output if not invoke.error else ""
-                    latency = invoke.latency_ms
-
-                expected = row.get("expected_output")
-
-                logger.info(
-                    "Sample %s/%s latency_ms=%s has_output=%s error=%s",
-                    idx + 1,
-                    validated.row_count,
-                    latency,
-                    bool(actual),
-                    invoke_error,
-                    extra={
-                        "component": "evaluation_runner",
-                        "evaluation_id": str(evaluation_id),
-                        "sample_index": idx,
-                    },
-                )
-
-                scores = self._evaluator.evaluate_sample(
-                    actual_output=actual,
-                    expected_output=expected,
-                    latency_ms=latency,
-                    metric_names=metric_names,
-                )
-                if invoke_error:
-                    scores["invocation_error"] = invoke_error
-
-                # Merge Vertex managed/trajectory scores if present
-                if idx in managed_scores_by_index:
-                    scores.update(managed_scores_by_index[idx])
-
-                all_score_rows.append(scores)
-
-                await self._eval_repo.add_result(
-                    evaluation_run_id=run.id,
-                    sample_index=idx,
-                    input_text=row["input"],
-                    expected_output=expected,
-                    actual_output=actual or None,
-                    scores=scores,
-                    latency_ms=latency,
-                )
-                await self._session.commit()
-
-            aggregates = compute_aggregates(all_score_rows, metric_names)
-            run_error: str | None = None
-            total = aggregates.get("total_samples") or len(validated.rows)
-            empty = aggregates.get("empty_responses", 0)
-            if total and empty >= total:
-                run_error = (
-                    f"All {total} samples returned empty agent output. "
-                    "This matches the reference notebook: run_inference completed but the "
-                    "deployed Reasoning Engine generated no text. Check Vertex AI agent "
-                    "logs for your Travel Planner (or re-deploy the agent). "
-                    "Use POST /api/v1/agents/{{id}}/test-invoke to debug one prompt."
-                )
+            usage = self._usage(cases, per_sample)
+            aggregates = aggregate(cases, [s.scores for s in per_sample])
+            await self._persist(run, cases, per_sample)
             await self._eval_repo.update_run_status(
                 run,
                 "completed",
                 aggregate_scores=aggregates,
-                error_message=run_error,
+                usage=usage,
                 mark_completed=True,
             )
             await self._session.commit()
+            logger.info("Evaluation completed", extra=log_extra)
 
-            logger.info(
-                "Evaluation completed",
-                extra={
-                    "component": "evaluation_runner",
-                    "evaluation_id": str(evaluation_id),
-                    "aggregates": str(aggregates),
-                },
-            )
         except Exception as exc:
-            logger.exception(
-                "Evaluation failed",
-                extra={"component": "evaluation_runner", "evaluation_id": str(evaluation_id)},
-            )
-            await self._eval_repo.update_run_status(
-                run,
-                "failed",
-                error_message=str(exc),
-                mark_completed=True,
-            )
-            await self._session.commit()
+            logger.exception("Evaluation failed", extra=log_extra)
+            await self._session.rollback()
+            fresh = await self._eval_repo.get_run(evaluation_id)
+            if fresh:
+                await self._eval_repo.update_run_status(
+                    fresh, "failed", error_message=str(exc)[:2000], mark_completed=True
+                )
+                await self._session.commit()
 
-    async def _run_batch_invoke(
-        self, resource_name: str, rows: list[dict[str, str]]
-    ):
-        import asyncio
+    # -- steps ----------------------------------------------------------
 
-        return await asyncio.to_thread(self._invoker.batch_invoke, resource_name, rows)
+    async def _load(self, run: Any) -> tuple[Any, Any, list[dict[str, Any]], list[str]]:
+        agent = await self._agent_repo.get_agent(run.agent_id)
+        if not agent:
+            raise ValueError(f"Agent {run.agent_id} not found")
+        if not agent.endpoint_url:
+            raise ValueError("Agent has no endpoint_url (reasoning engine resource)")
+
+        dataset = await self._dataset_repo.get(run.dataset_id)
+        if not dataset:
+            raise ValueError(f"Dataset {run.dataset_id} not found")
+
+        validated = parse_dataset_file(dataset.file_path)
+        metrics = validate_metrics(run.metrics or [])
+        if not metrics:
+            raise ValueError("No metrics selected for this evaluation")
+        return agent, dataset, validated.rows, metrics
+
+    def _snapshot(self, agent: Any, dataset: Any, metrics: list[str]) -> dict[str, Any]:
+        """Everything needed to interpret this run's numbers later."""
+        settings = get_settings()
+        return {
+            "snapshot_at": datetime.now(timezone.utc).isoformat(),
+            "agent_engine_id": (agent.extra_metadata or {}).get("gcp_engine_id"),
+            "agent_resource_name": agent.endpoint_url,
+            "agent_type": agent.agent_type,
+            "agent_capabilities": list(agent.capabilities or []),
+            "environment": agent.environment,
+            "dataset_id": str(dataset.id),
+            "dataset_version": dataset.version,
+            "dataset_source": dataset.source,
+            "dataset_review_status": dataset.review_status,
+            "metrics": metrics,
+            "metric_config_version": METRIC_CONFIG_VERSION,
+            "invocation_interface": f"{INVOCATION_ENDPOINT}/{INVOCATION_CLASS_METHOD}",
+            "invoke_concurrency": settings.invoke_concurrency,
+            "framework_versions": framework_versions(),
+            **judge_info(),
+        }
+
+    async def _score(
+        self, metrics: list[str], cases: list[EvaluationCase]
+    ) -> list[MetricOutcome]:
+        grouped = group_by_executor(metrics)
+        outcomes = [MetricOutcome() for _ in cases]
+
+        for index, case in enumerate(cases):
+            if case.state is not InvocationState.SUCCESS:
+                # Scoring a failed invocation would report an agent outage as
+                # poor answer quality.
+                outcomes[index].unavailable = {
+                    name: f"Invocation did not succeed ({case.state.value})."
+                    for name in metrics
+                }
+                continue
+            outcomes[index].scores.update(
+                run_deterministic(grouped.get(DETERMINISTIC, []), case)
+            )
+            outcomes[index].scores.update(
+                run_trace_health(grouped.get(TRACE_HEALTH, []), case)
+            )
+            for spec in grouped.get(DETERMINISTIC, []):
+                reason = spec.unavailable_reason(case.available_fields())
+                if reason:
+                    outcomes[index].unavailable[spec.name] = reason
+
+        deepeval_specs = grouped.get(DEEPEVAL, [])
+        if deepeval_specs:
+            scoreable = [
+                (i, c) for i, c in enumerate(cases) if c.state is InvocationState.SUCCESS
+            ]
+            if scoreable:
+                judged = await run_deepeval_batch(
+                    deepeval_specs, [c for _, c in scoreable]
+                )
+                for (index, _), result in zip(scoreable, judged):
+                    outcomes[index].scores.update(result.scores)
+                    outcomes[index].explanations.update(result.explanations)
+                    outcomes[index].unavailable.update(result.unavailable)
+                    outcomes[index].errors.update(result.errors)
+                    outcomes[index].span_scores.extend(result.span_scores)
+                    outcomes[index].judge_failed |= result.judge_failed
+        return outcomes
+
+    def _usage(
+        self, cases: list[EvaluationCase], outcomes: list[MetricOutcome]
+    ) -> dict[str, Any]:
+        tokens_in = sum(c.trace.tokens_in for c in cases if c.trace)
+        tokens_out = sum(c.trace.tokens_out for c in cases if c.trace)
+        tool_calls = sum(c.trace.tool_calls for c in cases if c.trace)
+        llm_calls = sum(c.trace.llm_calls for c in cases if c.trace)
+        judged_metrics = sum(len(o.scores) for o in outcomes)
+        span_judgements = sum(len(o.span_scores) for o in outcomes)
+        return {
+            "agent_tokens_in": tokens_in,
+            "agent_tokens_out": tokens_out,
+            "agent_tool_calls": tool_calls,
+            "agent_llm_calls": llm_calls,
+            "judge_metric_evaluations": judged_metrics,
+            "judge_span_evaluations": span_judgements,
+            # Estimated, not billing-accurate. Per-span scoring multiplies judge
+            # calls, so the number needs to be visible rather than discovered.
+            "agent_cost_usd_estimate": estimate_cost_usd(tokens_in, tokens_out),
+            "judge_failures": sum(1 for o in outcomes if o.judge_failed),
+        }
+
+    async def _persist(
+        self,
+        run: Any,
+        cases: list[EvaluationCase],
+        outcomes: list[MetricOutcome],
+    ) -> None:
+        for case, outcome in zip(cases, outcomes):
+            state = case.state
+            if state is InvocationState.SUCCESS and outcome.judge_failed and not outcome.scores:
+                # The agent answered; the judge is what broke.
+                state = InvocationState.JUDGE_ERROR
+            await self._eval_repo.add_result(
+                evaluation_run_id=run.id,
+                sample_index=case.sample_index,
+                input_text=case.input,
+                expected_output=case.expected_output,
+                actual_output=case.actual_output,
+                scores=outcome.scores,
+                latency_ms=case.latency_ms,
+                metric_explanations=outcome.explanations,
+                metric_unavailable=outcome.unavailable,
+                metric_errors=outcome.errors,
+                span_scores=outcome.span_scores,
+                trace=case.trace.to_dict() if case.trace else {},
+                state=state.value,
+                error_message=case.error,
+                tokens_in=case.trace.tokens_in if case.trace else 0,
+                tokens_out=case.trace.tokens_out if case.trace else 0,
+            )

@@ -11,7 +11,6 @@ from app.repositories.dataset_repository import DatasetRepository
 from app.repositories.evaluation_repository import EvaluationRepository
 from app.schemas.evaluation import (
     DEFAULT_PROMPT_ONLY_METRICS,
-    FRAMEWORK_METRICS,
     FRAMEWORKS,
     EvaluationJobCreate,
     EvaluationJobUpdate,
@@ -23,10 +22,15 @@ from app.schemas.evaluation import (
     EvaluationRunRead,
     evaluation_result_from_orm,
     evaluation_run_from_orm,
-    resolve_executable_metrics,
-    VERTEX_MANAGED_METRICS,
 )
 from app.services.datasets.parser import parse_dataset_file
+from app.services.evaluation.metric_registry import (
+    METRIC_REGISTRY,
+    UnknownMetricError,
+    catalogue,
+    validate_metrics,
+)
+from app.services.evaluation.profiles import recommend
 from app.tasks.evaluation_tasks import run_evaluation_background
 
 router = APIRouter(prefix="/evaluations", tags=["evaluations"])
@@ -42,19 +46,11 @@ def _evaluation_not_found_detail(evaluation_id: uuid.UUID) -> str:
 
 
 def _validate_framework_metrics(framework: str, metrics: list[str]) -> None:
-    if framework not in FRAMEWORKS and framework != "vertex_ai":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported framework: {framework}. Supported: {FRAMEWORKS}",
-        )
-    normalized = "vertex" if framework == "vertex_ai" else framework
-    allowed = set(FRAMEWORK_METRICS.get(normalized, []))
-    invalid = [m for m in metrics if m not in allowed]
-    if invalid:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported metrics for {framework}: {invalid}. Allowed: {sorted(allowed)}",
-        )
+    """Reject unknown metrics by name instead of silently rewriting them."""
+    try:
+        validate_metrics(metrics)
+    except UnknownMetricError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _validate_reference_column(metrics: list[str], dataset_path: str) -> None:
@@ -75,22 +71,24 @@ def _validate_reference_column(metrics: list[str], dataset_path: str) -> None:
 async def _prepare_metrics_for_dataset(
     session: AsyncSession, dataset_id: uuid.UUID, framework: str, metrics: list[str]
 ) -> list[str]:
+    """Validate the selection and warn about metrics this dataset cannot support.
+
+    Reference-based metrics are kept, not dropped: the run reports them as
+    unavailable with a reason, which is more useful than quietly substituting
+    something else.
+    """
     dataset = await DatasetRepository(session).get(dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    executable = resolve_executable_metrics(framework, metrics)
     try:
-        validated = parse_dataset_file(dataset.file_path)
-        has_expected = any((r.get("expected_output") or "").strip() for r in validated.rows)
-        if not has_expected:
-            managed = [m for m in executable if m in VERTEX_MANAGED_METRICS]
-            local_only = [m for m in executable if m not in VERTEX_MANAGED_METRICS]
-            if set(local_only) <= {"exact_match", "contains_expected"}:
-                executable = managed + list(DEFAULT_PROMPT_ONLY_METRICS)
-    except Exception:
-        pass
-    return executable
+        selected = validate_metrics(metrics)
+    except UnknownMetricError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not selected:
+        return list(DEFAULT_PROMPT_ONLY_METRICS)
+    return selected
 
 
 @router.post("/jobs", response_model=EvaluationRunRead, status_code=201)
@@ -383,3 +381,9 @@ async def get_evaluation_result(
     if not row or row.evaluation_run_id != evaluation_id:
         raise HTTPException(status_code=404, detail="Evaluation result not found")
     return evaluation_result_from_orm(row)
+
+
+@router.get("/meta/metrics")
+async def list_metric_catalogue() -> dict[str, object]:
+    """The metric catalogue, so the UI has one definition instead of its own copy."""
+    return {"items": catalogue(), "total": len(METRIC_REGISTRY)}

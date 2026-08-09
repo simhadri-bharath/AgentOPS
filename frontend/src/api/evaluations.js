@@ -82,3 +82,11 @@ export function startEvaluation(body) {
 export function retryEvaluation(evaluationId) {
   return api.post(`/api/v1/evaluations/${evaluationId}/retry`)
 }
+
+export function fetchMetricCatalogue() {
+  return api.get('/api/v1/evaluations/meta/metrics')
+}
+
+export function fetchRecommendedMetrics(agentId) {
+  return api.get(`/api/v1/agents/${agentId}/recommended-metrics`)
+}
