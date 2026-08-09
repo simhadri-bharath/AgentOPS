@@ -297,11 +297,37 @@ def build_trace(
             ToolCall(name=name, args=dict(call.tool_args), error="No tool response")
         )
 
+    trace.output = unwrap_json_text(trace.output)
     trace.retrieval_context = _dedupe_docs(trace.retrieval_context)
     for span in trace.spans:
         if span.kind is SpanKind.AGENT:
             span.retrieval_context = _dedupe_docs(span.retrieval_context)
     return trace
+
+
+def unwrap_json_text(output: str) -> str:
+    """Unwrap answers the agent returned as a JSON envelope.
+
+    The live formatter agent emits {"text": "..."} rather than bare text;
+    scoring the envelope would penalise the agent for its own serialization.
+    Applied here rather than in the invoker so trace harvesting gets it too.
+    """
+    stripped = (output or "").strip()
+    if not stripped.startswith("{"):
+        return output
+    import json
+
+    try:
+        parsed = json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return output
+    if not isinstance(parsed, dict):
+        return output
+    for key in ("text", "answer", "response", "output", "content", "message"):
+        value = parsed.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return output
 
 
 def _render(value: Any) -> str:

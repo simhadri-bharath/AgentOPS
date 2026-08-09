@@ -10,6 +10,7 @@ import TabBar from '../components/TabBar'
 import KVRow from '../components/KVRow'
 import MiniBar from '../components/MiniBar'
 import EmptyState from '../components/EmptyState'
+import SessionDatasetBuilder from '../components/SessionDatasetBuilder'
 
 import { useAgents } from '../context/AgentsContext'
 import * as agentsApi from '../api/agents'
@@ -268,11 +269,10 @@ export default function AgentDetail() {
   }
 
   const renderOverview = () => {
-    const agentTools = agent.tools && agent.tools !== '—'
-      ? agent.tools
-      : (agent.slug.includes('travel') || agent.name.toLowerCase().includes('travel'))
-        ? 'Weather API, Attractions Search, Hotel Booking, Flight Search, Memory Store'
-        : '—'
+    // No invented fallback: an agent with no known tools shows none.
+    const agentTools = agent.tools && agent.tools !== '—' ? agent.tools : '—'
+    const raw = agent._raw || {}
+    const capabilities = (raw.capabilities || []).join(', ') || '—'
 
     return (
       <>
@@ -285,6 +285,10 @@ export default function AgentDetail() {
             <KVRow label="Region" value={agent.region} />
             <KVRow label="Project" value={agent.project} />
             <KVRow label="Source" value={agent.source} />
+            <KVRow label="Agent type" value={raw.agent_type || 'unknown'} />
+            <KVRow label="Capabilities" value={capabilities} />
+            <KVRow label="Environment" value={raw.environment || 'unknown'} />
+            <KVRow label="Purpose" value={raw.purpose || '—'} />
             <KVRow label="Tools" value={agentTools} isLast />
           </Card>
 
@@ -512,6 +516,11 @@ export default function AgentDetail() {
           </Badge>
         </div>
         <div className="flex gap-2">
+          <SessionDatasetBuilder
+            agentId={id}
+            agentName={agent.name}
+            onCreated={() => nav('/evaluation?agentId=' + id)}
+          />
           <Btn onClick={() => nav('/traces')}><Activity size={13} />View traces</Btn>
           <Btn primary onClick={() => nav(`/evaluation?agentId=${id}`)}><FlaskConical size={13} />Run eval</Btn>
         </div>

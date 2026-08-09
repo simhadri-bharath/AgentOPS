@@ -17,7 +17,11 @@ from typing import Any
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.services.evaluation.trace_model import InvocationState, Trace
-from app.services.evaluation.trace_normalizer import build_trace, normalize_events
+from app.services.evaluation.trace_normalizer import (
+    build_trace,
+    normalize_events,
+    unwrap_json_text,
+)
 from app.services.gcp.agent_engine_client import AgentEngineClient, AgentEngineError
 
 logger = get_logger(__name__)
@@ -228,8 +232,9 @@ class AgentEngineInvoker:
         if not trace.output:
             # The streamed chunks are the fallback: the events API is the
             # authority, but a harvest race should not lose the answer.
-            trace.output = _text_from_chunks(chunks)
-        trace.output = _unwrap_json_text(trace.output)
+            # Unwrapped here too: build_trace only sees the events, and this
+            # fallback text bypasses it.
+            trace.output = unwrap_json_text(_text_from_chunks(chunks))
 
         # sessions.events.list does not return usageMetadata -- only the stream
         # carries it, so token counts come from the chunks.
@@ -290,30 +295,6 @@ def _usage_from_chunks(chunks: list[dict[str, Any]]) -> tuple[int, int]:
             usage.get("candidates_token_count") or usage.get("candidatesTokenCount") or 0
         )
     return tokens_in, tokens_out
-
-
-def _unwrap_json_text(output: str) -> str:
-    """Unwrap answers the agent returned as a JSON envelope.
-
-    The live formatter agent emits {"text": "..."} rather than bare text; scoring
-    the envelope would penalise the agent for its own serialization.
-    """
-    stripped = (output or "").strip()
-    if not stripped.startswith("{"):
-        return output
-    import json
-
-    try:
-        parsed = json.loads(stripped)
-    except (json.JSONDecodeError, ValueError):
-        return output
-    if not isinstance(parsed, dict):
-        return output
-    for key in ("text", "answer", "response", "output", "content", "message"):
-        value = parsed.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return output
 
 
 def _invocation_id(chunks: list[dict[str, Any]], raw_events: list[dict[str, Any]]) -> str:

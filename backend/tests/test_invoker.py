@@ -3,10 +3,10 @@
 import pytest
 
 from app.services.evaluation.trace_model import InvocationState, TERMINAL_FAILURE_STATES
+from app.services.evaluation.trace_normalizer import unwrap_json_text as _unwrap_json_text
 from app.services.invokers.agent_engine import (
     AgentEngineInvoker,
     _text_from_chunks,
-    _unwrap_json_text,
     _usage_from_chunks,
 )
 

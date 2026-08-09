@@ -20,6 +20,11 @@ class DatasetRepository:
         format: str,
         row_count: int,
         description: str | None = None,
+        source: str = "upload",
+        review_status: str = "human_reviewed",
+        created_by: str | None = None,
+        agent_id: uuid.UUID | None = None,
+        category_distribution: dict[str, int] | None = None,
     ) -> Dataset:
         dataset = Dataset(
             name=name,
@@ -27,8 +32,19 @@ class DatasetRepository:
             file_path=file_path,
             format=format,
             row_count=row_count,
+            source=source,
+            review_status=review_status,
+            created_by=created_by,
+            agent_id=agent_id,
+            category_distribution=category_distribution or {},
         )
         self._session.add(dataset)
+        await self._session.flush()
+        await self._session.refresh(dataset)
+        return dataset
+
+    async def set_review_status(self, dataset: Dataset, review_status: str) -> Dataset:
+        dataset.review_status = review_status
         await self._session.flush()
         await self._session.refresh(dataset)
         return dataset

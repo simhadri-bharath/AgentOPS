@@ -23,3 +23,15 @@ export function uploadDataset(file, { name, description } = {}) {
 export function deleteDataset(datasetId) {
   return api.delete(`/api/v1/datasets/${datasetId}`)
 }
+
+export function previewSessionDataset(body) {
+  return api.post('/api/v1/datasets/from-sessions/preview', body)
+}
+
+export function createDatasetFromSessions(body) {
+  return api.post('/api/v1/datasets/from-sessions', body)
+}
+
+export function setDatasetReviewStatus(datasetId, reviewStatus) {
+  return api.patch(`/api/v1/datasets/${datasetId}/review`, { review_status: reviewStatus })
+}
