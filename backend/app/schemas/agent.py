@@ -150,4 +150,12 @@ class AgentInvokeTestResponse(ORMBase):
     latency_ms: int
     error: str | None = None
     via: str
+    state: str = "SUCCESS"
+    agent_path: list[str] = Field(default_factory=list)
+    trajectory: list[dict[str, Any]] = Field(default_factory=list)
+    retrieval_context: list[dict[str, Any]] = Field(default_factory=list)
+    spans: list[dict[str, Any]] = Field(default_factory=list)
+    trace_health: dict[str, float] = Field(default_factory=dict)
+    tokens_in: int = 0
+    tokens_out: int = 0
     events_preview: str | None = None

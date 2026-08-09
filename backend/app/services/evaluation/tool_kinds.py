@@ -45,8 +45,26 @@ _NAME_HINTS: list[tuple[ToolKind, tuple[str, ...]]] = [
 
 # Keys that commonly hold the document text in a retrieval payload.
 _TEXT_KEYS = ("text", "content", "snippet", "chunk", "page_content", "body", "document")
-_ID_KEYS = ("id", "document_id", "doc_id", "name", "uri", "url", "source")
+# Lists of strings that are the passages themselves. The live search_documents
+# tool returns {"result": [{"title", "source_url", "snippets": [...]}]}.
+_SNIPPET_LIST_KEYS = ("snippets", "passages", "chunks", "excerpts", "contents")
+_ID_KEYS = ("id", "document_id", "doc_id", "title", "name", "uri", "url", "source")
+_SOURCE_KEYS = ("source_url", "source", "uri", "url", "link")
 _SCORE_KEYS = ("score", "relevance", "distance", "similarity", "confidence")
+# Keys whose value is the list of records in a retrieval response.
+_CONTAINER_KEYS = (
+    "result",
+    "results",
+    "documents",
+    "chunks",
+    "matches",
+    "hits",
+    "items",
+    "passages",
+    "records",
+    "sources",
+    "citations",
+)
 
 
 @dataclass
@@ -91,13 +109,25 @@ def _records_of(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [r for r in payload if isinstance(r, dict)]
     if isinstance(payload, dict):
-        for key in ("documents", "results", "chunks", "matches", "hits", "items", "passages"):
+        for key in _CONTAINER_KEYS:
             value = payload.get(key)
             if isinstance(value, list):
                 return [r for r in value if isinstance(r, dict)]
         # A single document returned bare.
-        if any(k in payload for k in _TEXT_KEYS):
+        if any(k in payload for k in _TEXT_KEYS) or any(
+            k in payload for k in _SNIPPET_LIST_KEYS
+        ):
             return [payload]
+    return []
+
+
+def _snippets_of(record: dict[str, Any]) -> list[str]:
+    for key in _SNIPPET_LIST_KEYS:
+        value = record.get(key)
+        if isinstance(value, list):
+            texts = [s.strip() for s in value if isinstance(s, str) and s.strip()]
+            if texts:
+                return texts
     return []
 
 
@@ -105,7 +135,7 @@ def _looks_like_documents(payload: Any) -> bool:
     records = _records_of(payload)
     if not records:
         return False
-    with_text = sum(1 for r in records if _first_str(r, _TEXT_KEYS))
+    with_text = sum(1 for r in records if _first_str(r, _TEXT_KEYS) or _snippets_of(r))
     if not with_text:
         return False
     # Text plus an identifier or a score is document-shaped; text alone is not
@@ -145,30 +175,44 @@ def extract_retrieval_docs(tool_result: Any) -> list[RetrievalDoc]:
         return []
 
     docs: list[RetrievalDoc] = []
-    for rank, record in enumerate(records):
-        text = _first_str(record, _TEXT_KEYS)
-        if not text.strip():
-            continue
+    rank = 0
+    for record in records:
         raw_score = _first_present(record, _SCORE_KEYS)
         try:
             score = float(raw_score) if raw_score is not None else None
         except (TypeError, ValueError):
             score = None
         doc_id = _first_present(record, _ID_KEYS)
-        docs.append(
-            RetrievalDoc(
-                document_id=str(doc_id) if doc_id is not None else None,
-                text=text.strip(),
-                score=score,
-                rank=rank,
-                source=_first_str(record, ("source", "uri", "url")) or None,
-                metadata={
-                    k: v
-                    for k, v in record.items()
-                    if k not in _TEXT_KEYS and not isinstance(v, (dict, list))
-                },
+        source = _first_str(record, _SOURCE_KEYS) or None
+        metadata = {
+            k: v
+            for k, v in record.items()
+            if k not in _TEXT_KEYS
+            and k not in _SNIPPET_LIST_KEYS
+            and not isinstance(v, (dict, list))
+        }
+
+        # A record can carry several passages. Emitting one doc per passage
+        # keeps contextual precision meaningful -- a single concatenated blob
+        # would score as one relevant-or-not unit no matter how much of it
+        # was noise.
+        snippets = _snippets_of(record)
+        texts = snippets or ([_first_str(record, _TEXT_KEYS)] if _first_str(record, _TEXT_KEYS) else [])
+        for offset, text in enumerate(texts):
+            if not text.strip():
+                continue
+            suffix = f"#{offset}" if len(texts) > 1 else ""
+            docs.append(
+                RetrievalDoc(
+                    document_id=f"{doc_id}{suffix}" if doc_id is not None else None,
+                    text=text.strip(),
+                    score=score,
+                    rank=rank,
+                    source=source,
+                    metadata=dict(metadata),
+                )
             )
-        )
+            rank += 1
     return docs
 
 

@@ -89,3 +89,40 @@ def test_no_tools_no_subagents_falls_back_to_conversational():
         infer_agent_type([], ["user", "agent"], class_methods=["stream_query"])
         == "conversational"
     )
+
+
+def test_live_search_documents_payload_shape():
+    """The real tool returns {"result": [{title, source_url, snippets: [...]}]}.
+
+    Neither the container key nor the snippet list matched the original
+    extractor, so a live RAG agent produced zero retrieval context.
+    """
+    payload = {
+        "result": [
+            {
+                "title": "Illinois Surplus Lines Survey - Taxes (2026-08)",
+                "source_url": "https://www.ilga.gov/legislation/ilcs/documents/021500050K445.htm",
+                "snippets": [
+                    "Imposes a 3.5% tax on gross premiums less returned premiums.",
+                    "Additionally, imposes a 1% Fire Marshal Tax.",
+                ],
+            }
+        ]
+    }
+    assert classify_tool("search_documents", payload) is ToolKind.RETRIEVAL
+    docs = extract_retrieval_docs(payload)
+    # One document per snippet: a concatenated blob would score as a single
+    # relevant-or-not unit regardless of how much of it was noise.
+    assert len(docs) == 2
+    assert docs[0].document_id.endswith("#0")
+    assert docs[1].document_id.endswith("#1")
+    assert "3.5%" in docs[0].text
+    assert docs[0].source.startswith("https://www.ilga.gov")
+    assert [d.rank for d in docs] == [0, 1]
+
+
+def test_single_snippet_document_keeps_a_clean_id():
+    payload = {"result": [{"title": "doc-a", "snippets": ["only passage"]}]}
+    docs = extract_retrieval_docs(payload)
+    assert len(docs) == 1
+    assert docs[0].document_id == "doc-a"

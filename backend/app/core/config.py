@@ -38,6 +38,13 @@ class Settings(BaseSettings):
         alias="EVALUATION_TIMEOUT_SECONDS",
     )
     evaluation_max_retries: int = Field(default=2, alias="EVALUATION_MAX_RETRIES")
+    # Concurrent agent invocations. A retrieval turn takes ~40s, so serial
+    # execution over a 50-sample dataset would exceed half an hour.
+    invoke_concurrency: int = Field(default=8, alias="INVOKE_CONCURRENCY")
+
+    judge_model: str = Field(default="gemini-2.5-flash", alias="JUDGE_MODEL")
+    judge_temperature: float = Field(default=0.0, alias="JUDGE_TEMPERATURE")
+    judge_concurrency: int = Field(default=6, alias="JUDGE_CONCURRENCY")
 
     redteam_default_judge: str = Field(
         default="gemini-1.5-pro",

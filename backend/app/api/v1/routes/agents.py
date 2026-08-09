@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +21,12 @@ from app.schemas.agent import (
     AgentRead,
 )
 from app.schemas.evaluation import EvaluationRunListResponse, evaluation_run_from_orm
-from app.services.evaluation.agent_invoker import AgentInvoker
-from app.services.evaluation.reasoning_engine_direct import events_preview, stream_query_prompt
+from app.services.evaluation.trace_health import compute_trace_health
+from app.services.gcp.agent_engine_client import (
+    INVOCATION_CLASS_METHOD,
+    INVOCATION_ENDPOINT,
+)
+from app.services.invokers.agent_engine import AgentEngineInvoker
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -277,9 +282,10 @@ async def test_invoke_agent(
     body: AgentInvokeTestRequest,
     repo: AgentRepository = Depends(get_agent_repository),
 ) -> AgentInvokeTestResponse:
-    """
-    Debug a single prompt against the agent's Reasoning Engine.
-    Tries run_inference (1 row) then stream_query fallback.
+    """Run one prompt against the agent and show the harvested trace.
+
+    This is the pre-flight check: a bad configuration surfaces here rather than
+    part-way through an evaluation run.
     """
     agent = await repo.get_agent(agent_id)
     if agent is None:
@@ -287,46 +293,23 @@ async def test_invoke_agent(
     if not agent.endpoint_url:
         raise HTTPException(status_code=400, detail="Agent has no endpoint_url")
 
-    row: dict[str, str] = {"input": body.prompt}
-    if body.context:
-        row["context"] = body.context
+    invoker = AgentEngineInvoker(
+        tool_overrides=(agent.invocation_config or {}).get("tool_overrides")
+    )
+    outcome = await invoker.invoke(agent.endpoint_url, body.prompt, context=body.context)
+    trace = outcome.trace
 
-    invoker = AgentInvoker()
-
-    def _run() -> AgentInvokeTestResponse:
-        from app.core.config import get_settings
-        from app.services.gcp.auth import require_adc
-
-        invoker.initialize()
-        settings = get_settings()
-        auth = require_adc()
-        project_id = settings.gcp_project_id or auth.project_id or ""
-        region = settings.gcp_region
-
-        results = invoker.batch_invoke(agent.endpoint_url, [row])
-        r = results[0] if results else None
-        if r and r.output.strip():
-            return AgentInvokeTestResponse(
-                output=r.output,
-                latency_ms=r.latency_ms,
-                via="run_inference",
-            )
-
-        prompt = row["input"]
-        if row.get("context"):
-            prompt = f"Context:\n{row['context']}\n\nUser:\n{prompt}"
-        text, events, err = stream_query_prompt(
-            project_id=project_id,
-            region=region,
-            resource_name=agent.endpoint_url,
-            prompt=prompt,
-        )
-        return AgentInvokeTestResponse(
-            output=text,
-            latency_ms=r.latency_ms if r else 0,
-            error=err or (r.error if r else None),
-            via="stream_query",
-            events_preview=events_preview(events),
-        )
-
-    return await asyncio.to_thread(_run)
+    return AgentInvokeTestResponse(
+        output=outcome.output,
+        latency_ms=outcome.latency_ms,
+        error=outcome.error,
+        via=f"{INVOCATION_ENDPOINT}/{INVOCATION_CLASS_METHOD}",
+        state=outcome.state.value,
+        agent_path=list(trace.agent_path) if trace else [],
+        trajectory=[t.to_dict() for t in trace.trajectory] if trace else [],
+        retrieval_context=[asdict(d) for d in trace.retrieval_context] if trace else [],
+        spans=[s.to_dict() for s in trace.spans] if trace else [],
+        trace_health=compute_trace_health(trace) if trace else {},
+        tokens_in=trace.tokens_in if trace else 0,
+        tokens_out=trace.tokens_out if trace else 0,
+    )

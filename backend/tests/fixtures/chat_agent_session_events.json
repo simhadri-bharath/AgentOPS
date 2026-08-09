@@ -1,0 +1,138 @@
+[
+  {
+    "name": "projects/511188498779/locations/us-central1/reasoningEngines/8804280535544233984/sessions/abc123/events/e1",
+    "invocationId": "e-19e543ac-0464-41",
+    "author": "user",
+    "timestamp": "2026-08-07T21:14:45.100Z",
+    "content": {
+      "role": "user",
+      "parts": [{ "text": "What are the surplus lines premium tax filing requirements for Illinois?" }]
+    }
+  },
+  {
+    "name": ".../sessions/abc123/events/e2",
+    "invocationId": "e-19e543ac-0464-41",
+    "author": "research_agent",
+    "timestamp": "2026-08-07T21:14:47.000Z",
+    "content": {
+      "role": "model",
+      "parts": [
+        { "functionCall": { "name": "search_documents", "args": { "query": "Illinois surplus lines premium tax" } } }
+      ]
+    },
+    "usageMetadata": { "promptTokenCount": 1200, "candidatesTokenCount": 40 }
+  },
+  {
+    "name": ".../sessions/abc123/events/e3",
+    "invocationId": "e-19e543ac-0464-41",
+    "author": "research_agent",
+    "timestamp": "2026-08-07T21:14:52.000Z",
+    "content": {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "name": "search_documents",
+            "response": {
+              "documents": [
+                { "document_id": "il-215-ilcs-5", "text": "Illinois imposes a 3.5% surplus line tax on gross premiums.", "score": 0.93 },
+                { "document_id": "il-filing-cal", "text": "Filings are due within 30 days of the end of each quarter.", "score": 0.81 }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": ".../sessions/abc123/events/e4",
+    "invocationId": "e-19e543ac-0464-41",
+    "author": "research_agent",
+    "timestamp": "2026-08-07T21:14:56.000Z",
+    "actions": { "stateDelta": { "research_result": "drafted" } },
+    "content": {
+      "role": "model",
+      "parts": [{ "text": "Illinois requires a 3.5% surplus line tax, filed quarterly." }]
+    },
+    "usageMetadata": { "promptTokenCount": 2400, "candidatesTokenCount": 180 }
+  },
+  {
+    "name": ".../sessions/abc123/events/e5",
+    "invocationId": "e-19e543ac-0464-41",
+    "author": "formatter_agent",
+    "timestamp": "2026-08-07T21:14:58.000Z",
+    "content": {
+      "role": "model",
+      "parts": [{ "text": "**Illinois surplus lines**\n- Tax: 3.5% of gross premium\n- Filing: quarterly, within 30 days" }]
+    },
+    "usageMetadata": { "promptTokenCount": 300, "candidatesTokenCount": 90 }
+  },
+  {
+    "name": ".../sessions/abc123/events/e6",
+    "invocationId": "e-6df25124-768f-40",
+    "author": "user",
+    "timestamp": "2026-08-07T21:20:00.000Z",
+    "content": { "role": "user", "parts": [{ "text": "And for Texas?" }] }
+  },
+  {
+    "name": ".../sessions/abc123/events/e7",
+    "invocationId": "e-6df25124-768f-40",
+    "author": "research_agent",
+    "timestamp": "2026-08-07T21:20:02.000Z",
+    "content": {
+      "role": "model",
+      "parts": [{ "functionCall": { "name": "search_documents", "args": { "query": "Texas surplus lines tax" } } }]
+    }
+  },
+  {
+    "name": ".../sessions/abc123/events/e8",
+    "invocationId": "e-6df25124-768f-40",
+    "author": "research_agent",
+    "timestamp": "2026-08-07T21:20:06.000Z",
+    "content": {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "name": "search_documents",
+            "response": { "documents": [{ "document_id": "tx-225", "text": "Texas levies 4.85% on surplus lines premium.", "score": 0.9 }] }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": ".../sessions/abc123/events/e9",
+    "invocationId": "e-6df25124-768f-40",
+    "author": "research_agent",
+    "timestamp": "2026-08-07T21:20:08.000Z",
+    "content": {
+      "role": "model",
+      "parts": [{ "functionCall": { "name": "search_documents", "args": { "query": "Texas surplus lines tax" } } }]
+    }
+  },
+  {
+    "name": ".../sessions/abc123/events/e10",
+    "invocationId": "e-6df25124-768f-40",
+    "author": "research_agent",
+    "timestamp": "2026-08-07T21:20:11.000Z",
+    "content": {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "name": "search_documents",
+            "response": { "documents": [{ "document_id": "tx-225", "text": "Texas levies 4.85% on surplus lines premium.", "score": 0.9 }] }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": ".../sessions/abc123/events/e11",
+    "invocationId": "e-6df25124-768f-40",
+    "author": "formatter_agent",
+    "timestamp": "2026-08-07T21:20:14.000Z",
+    "content": { "role": "model", "parts": [{ "text": "Texas: 4.85% surplus lines premium tax." }] }
+  }
+]
