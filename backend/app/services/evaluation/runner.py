@@ -52,6 +52,7 @@ from app.services.gcp.agent_engine_client import (
     INVOCATION_CLASS_METHOD,
     INVOCATION_ENDPOINT,
 )
+from app.services.evaluation import registry
 from app.services.invokers.agent_engine import AgentEngineInvoker, InvokeOutcome
 
 logger = get_logger(__name__)
@@ -222,8 +223,28 @@ class EvaluationRunner:
             invoker = AgentEngineInvoker(
                 tool_overrides=(agent.invocation_config or {}).get("tool_overrides")
             )
-            outcomes = await invoker.batch_invoke(agent.endpoint_url, rows)
+            # Registered so POST /{id}/cancel can reach this instance; the
+            # invoker could always be cancelled, but nothing held the handle.
+            registry.register(evaluation_id, invoker)
+            try:
+                outcomes = await invoker.batch_invoke(agent.endpoint_url, rows)
+            finally:
+                registry.unregister(evaluation_id)
             cases = [build_case(i, row, out) for i, (row, out) in enumerate(zip(rows, outcomes))]
+
+            if invoker.cancelled:
+                await self._persist(run, cases, [MetricOutcome() for _ in cases])
+                await self._eval_repo.update_run_status(
+                    run,
+                    "cancelled",
+                    error_message="Cancelled before completion.",
+                    aggregate_scores=aggregate(cases, []),
+                    run_config=snapshot,
+                    mark_completed=True,
+                )
+                await self._session.commit()
+                logger.info("Evaluation cancelled", extra=log_extra)
+                return
 
             per_sample = await self._score(metrics, cases)
 

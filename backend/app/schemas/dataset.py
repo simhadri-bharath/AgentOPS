@@ -102,3 +102,38 @@ class DatasetReviewUpdate(ORMBase):
         if value not in REVIEW_STATUSES:
             raise ValueError(f"review_status must be one of {REVIEW_STATUSES}")
         return value
+
+
+class DatasetRowRead(ORMBase):
+    index: int
+    input: str
+    expected_output: str = ""
+    actual_output: str = ""
+    context: str = ""
+    category: str = "uncategorized"
+    retrieval_context: list[Any] = Field(default_factory=list)
+    reference_trajectory: list[Any] = Field(default_factory=list)
+    conversation: list[Any] = Field(default_factory=list)
+    # What still has to be filled in before this row supports reference-based
+    # metrics, and whether it is what blocks promotion to golden.
+    reviewed: bool = False
+    missing: list[str] = Field(default_factory=list)
+    blocks_golden: bool = False
+
+
+class DatasetRowsResponse(ORMBase):
+    dataset_id: uuid.UUID
+    review_status: str
+    version: int
+    total: int
+    unreviewed: int
+    items: list[DatasetRowRead] = Field(default_factory=list)
+
+
+class DatasetRowUpdate(ORMBase):
+    """Fields a reviewer may change. Everything else is captured evidence."""
+
+    expected_output: str | None = None
+    category: str | None = None
+    context: str | None = None
+    reference_trajectory: list[Any] | None = None

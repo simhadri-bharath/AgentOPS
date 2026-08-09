@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, Play, RotateCcw, Save, Upload } from 'lucide-react'
+import { ArrowLeft, Ban, Loader2, Play, RotateCcw, Save, Trash2, Upload } from 'lucide-react'
 import { Card, CardHeader } from '../components/Card'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
@@ -184,6 +184,33 @@ export default function JobDetailsPage() {
     } catch (err) {
       setError(err.message || 'Failed to retry evaluation')
     } finally {
+      setRunning(false)
+    }
+  }
+
+  const handleCancel = async () => {
+    setRunning(true)
+    setError(null)
+    try {
+      await evaluationsApi.cancelEvaluation(jobId)
+      await load({ silent: true })
+    } catch (err) {
+      setError(err.message || 'Failed to cancel evaluation')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    // Irreversible and removes the samples with it, so it is confirmed first.
+    if (!window.confirm('Delete this run and all of its results? This cannot be undone.')) return
+    setRunning(true)
+    setError(null)
+    try {
+      await evaluationsApi.deleteEvaluation(jobId)
+      nav('/jobs')
+    } catch (err) {
+      setError(err.message || 'Failed to delete evaluation')
       setRunning(false)
     }
   }
@@ -588,17 +615,37 @@ export default function JobDetailsPage() {
           <div />
 
           {(job.status === 'failed' ||
+            job.status === 'cancelled' ||
             job.status === 'queued') && (
             <Btn
               disabled={running}
               onClick={handleRetry}
-              style={{
-                padding: '7px 12px',
-                fontSize: 12,
-              }}
+              style={{ padding: '7px 12px', fontSize: 12 }}
             >
               <RotateCcw size={12} />
               Retry
+            </Btn>
+          )}
+
+          {(job.status === 'running' || job.status === 'queued') && (
+            <Btn
+              disabled={running}
+              onClick={handleCancel}
+              style={{ padding: '7px 12px', fontSize: 12 }}
+            >
+              <Ban size={12} />
+              Cancel
+            </Btn>
+          )}
+
+          {job.status !== 'running' && (
+            <Btn
+              disabled={running}
+              onClick={handleDelete}
+              style={{ padding: '7px 12px', fontSize: 12, color: '#B91C1C' }}
+            >
+              <Trash2 size={12} />
+              Delete
             </Btn>
           )}
         </>

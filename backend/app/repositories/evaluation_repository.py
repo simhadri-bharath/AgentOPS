@@ -217,6 +217,14 @@ class EvaluationRepository:
         )
         await self._session.flush()
 
+    async def delete_run(self, run_id: uuid.UUID) -> bool:
+        run = await self.get_run(run_id)
+        if run is None:
+            return False
+        await self._session.delete(run)
+        await self._session.flush()
+        return True
+
     async def get_run_with_results(self, run_id: uuid.UUID) -> EvaluationRun | None:
         result = await self._session.execute(
             select(EvaluationRun)

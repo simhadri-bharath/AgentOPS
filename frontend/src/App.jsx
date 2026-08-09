@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import Agents from './pages/Agents'
 import AgentDetail from './pages/AgentDetail'
 import Deployments from './pages/Deployments'
+import Datasets from './pages/Datasets'
 import Evaluation from './pages/Evaluation'
 import JobsPage from './pages/JobsPage'
 import JobDetailsPage from './pages/JobDetailsPage'
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="deployments" element={<Deployments />} />
           <Route path="agents" element={<Agents />} />
           <Route path="agents/:id" element={<AgentDetail />} />
+          <Route path="datasets" element={<Datasets />} />
           <Route path="evaluation" element={<Evaluation />} />
           <Route path="jobs" element={<JobsPage />} />
           <Route path="jobs/:jobId" element={<JobDetailsPage />} />

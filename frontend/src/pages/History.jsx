@@ -6,6 +6,7 @@ import Badge from '../components/Badge'
 import { Table, THead, Th, Td, TRow } from '../components/Table'
 import PageHeader from '../components/PageHeader'
 import EmptyState from '../components/EmptyState'
+import RunComparison from '../components/RunComparison'
 import { useAgents } from '../context/AgentsContext'
 import * as evaluationsApi from '../api/evaluations'
 import {
@@ -70,6 +71,8 @@ export default function History() {
           {error}
         </div>
       )}
+
+      <RunComparison runs={runs} />
 
       <Card>
         <CardHeader title="All runs">

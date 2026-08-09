@@ -15,6 +15,9 @@ from app.schemas.dataset import (
     DatasetListResponse,
     DatasetRead,
     DatasetReviewUpdate,
+    DatasetRowRead,
+    DatasetRowsResponse,
+    DatasetRowUpdate,
     DatasetUploadResponse,
     HarvestedCase,
     SessionDatasetCreate,
@@ -23,6 +26,13 @@ from app.schemas.dataset import (
 )
 from app.services.datasets.from_sessions import build_cases_from_sessions
 from app.services.datasets.parser import DatasetValidationError, detect_format, parse_dataset_file
+from app.services.datasets.row_editor import (
+    apply_row_edit,
+    read_rows,
+    row_review_state,
+    unreviewed_count,
+    write_rows,
+)
 from app.services.datasets.validator import category_distribution
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -179,6 +189,100 @@ async def create_dataset_from_sessions(
         warnings.append(f"{unreviewed} of {len(rows)} rows have no expected_output yet.")
 
     return DatasetUploadResponse(dataset=_to_read(dataset), warnings=warnings)
+
+
+def _row_payload(index: int, row: dict) -> DatasetRowRead:
+    state = row_review_state(row)
+    return DatasetRowRead(
+        index=index,
+        input=row.get("input", ""),
+        expected_output=row.get("expected_output") or "",
+        actual_output=row.get("actual_output") or "",
+        context=row.get("context") or "",
+        category=row.get("category") or "uncategorized",
+        retrieval_context=row.get("retrieval_context") or [],
+        reference_trajectory=row.get("reference_trajectory") or [],
+        conversation=row.get("conversation") or [],
+        reviewed=state["reviewed"],
+        missing=state["missing"],
+        blocks_golden=state["blocks_golden"],
+    )
+
+
+@router.get("/{dataset_id}/rows", response_model=DatasetRowsResponse)
+async def list_dataset_rows(
+    dataset_id: uuid.UUID,
+    limit: int = 100,
+    offset: int = 0,
+    unreviewed_only: bool = False,
+    session: AsyncSession = Depends(get_session),
+) -> DatasetRowsResponse:
+    """Read dataset rows with their review state.
+
+    Reviewing is what makes a bootstrapped dataset usable as a baseline, so the
+    rows have to be readable through the API, not only on disk.
+    """
+    dataset = await DatasetRepository(session).get(dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    try:
+        rows = read_rows(dataset.file_path)
+    except DatasetValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    indexed = list(enumerate(rows))
+    if unreviewed_only:
+        indexed = [(i, r) for i, r in indexed if not str(r.get("expected_output") or "").strip()]
+
+    window = indexed[offset : offset + limit]
+    return DatasetRowsResponse(
+        dataset_id=dataset_id,
+        review_status=dataset.review_status,
+        version=dataset.version,
+        total=len(indexed),
+        unreviewed=unreviewed_count(rows),
+        items=[_row_payload(i, r) for i, r in window],
+    )
+
+
+@router.patch("/{dataset_id}/rows/{row_index}", response_model=DatasetRowRead)
+async def update_dataset_row(
+    dataset_id: uuid.UUID,
+    row_index: int,
+    body: DatasetRowUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> DatasetRowRead:
+    """Fill in a reviewer's judgement for one row.
+
+    Only the fields a human decides are editable. Input, output, retrieval
+    context and the observed trajectory are captured evidence and stay as they
+    were recorded.
+    """
+    repo = DatasetRepository(session)
+    dataset = await repo.get(dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    changes = body.model_dump(exclude_unset=True, exclude_none=True)
+    if not changes:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    try:
+        rows = read_rows(dataset.file_path)
+        row = apply_row_edit(rows, row_index, changes)
+        written = write_rows(dataset.file_path, rows)
+    except DatasetValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # An edited dataset is a new version: a run recorded against version 1 must
+    # not silently be comparable to one against edited content.
+    await repo.record_edit(
+        dataset,
+        file_path=str(written.resolve()),
+        category_distribution=category_distribution(rows),
+    )
+    return _row_payload(row_index, row)
 
 
 @router.patch("/{dataset_id}/review", response_model=DatasetRead)

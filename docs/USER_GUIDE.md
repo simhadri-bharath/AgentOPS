@@ -395,8 +395,11 @@ not mean the agent is good.
 
 **Day 3 — Build the golden set**
 6. Build a dataset from sessions, 20–50 cases
-7. Review each row and fill in `expected_output`
-8. Promote to `golden`
+7. Open **Datasets**, click **Review**, and fill in `expected_output` per row.
+   Rows that still block promotion are highlighted, and the filter shows only
+   unreviewed ones.
+8. **Promote to golden.** It is refused, naming the count, until every row is
+   decided.
 
 **Day 4 — Full evaluation**
 9. Run the recommended pack against the golden set
@@ -405,7 +408,13 @@ not mean the agent is good.
 
 **Ongoing**
 12. Re-run after every agent change, against the same dataset version
-13. Compare against the recorded baseline
+13. On **History**, use **Compare runs** to diff against the baseline. Read the
+    warnings first: if the judge model or dataset version changed, the delta is
+    the harness moving, not the agent.
+
+Two controls worth knowing: a running job can be **cancelled** from its detail
+page (partial results are kept, not discarded), and any non-running job can be
+**deleted** with its results.
 
 ---
 
@@ -421,7 +430,9 @@ not mean the agent is good.
 | `RATE_LIMITED` | Too much concurrency | Lower `INVOKE_CONCURRENCY` and `JUDGE_CONCURRENCY` |
 | Run stuck in `running` after a restart | Background tasks die with the process | The startup sweep fails it automatically; use **Retry** |
 | `400 Unknown metric(s)` | A metric name not in the registry | Read `GET /api/v1/evaluations/meta/metrics` for valid names |
-| Cannot promote to `golden` | Rows missing `expected_output` | Fill them in — this gate is deliberate |
+| Cannot promote to `golden` | Rows missing `expected_output` | Datasets → Review → fill each row. The gate is deliberate |
+| Comparison says "not directly comparable" | Judge, dataset version or metric config differs between the runs | Re-run the baseline under current settings, or treat the delta as indicative only |
+| Dataset version jumped several numbers | Every row edit is a new version | Expected — a run snapshots the version it used |
 | Judge errors on `tool_correctness` | Judge not passed to the metric | Fixed; if it recurs, check `JUDGE_MODEL` is reachable in your region |
 | Traces / Logs pages show 502 | `google-cloud-trace` not installed | `pip install -r requirements.txt` — it is declared but easy to miss |
 

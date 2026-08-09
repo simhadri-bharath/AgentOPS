@@ -362,7 +362,12 @@ calls and that needs to be visible rather than discovered on an invoice.
 | POST | `/api/v1/datasets/from-sessions/preview` | Harvest candidate cases |
 | POST | `/api/v1/datasets/from-sessions` | Persist reviewed cases |
 | PATCH | `/api/v1/datasets/{id}/review` | Advance review status (gated) |
+| GET | `/api/v1/datasets/{id}/rows` | Rows with review state, filterable to unreviewed |
+| PATCH | `/api/v1/datasets/{id}/rows/{index}` | Fill in a reviewer's judgement; bumps dataset version |
 | GET | `/api/v1/evaluations/meta/metrics` | The metric catalogue |
+| POST | `/api/v1/evaluations/{id}/cancel` | Stop a running or queued run |
+| DELETE | `/api/v1/evaluations/{id}` | Delete a run and its results |
+| GET | `/api/v1/evaluations/{id}/compare?baseline=` | Run-over-run deltas + comparability warnings |
 | POST | `/api/v1/evaluations/jobs` · `/{id}/run` · `/run` | Create / queue / one-shot |
 | POST | `/api/v1/evaluations/{id}/retry` | Re-run a failed job |
 | GET | `/api/v1/evaluations/{id}` · `/results` · `/results/{rid}` | Run, samples, one sample |
@@ -438,14 +443,25 @@ These are decisions, not omissions.
 
 ## 14. Roadmap — ordered by value per unit of work
 
+### Delivered since the first draft of this roadmap
+
+- **Dataset review** — `GET/PATCH /datasets/{id}/rows` plus a `/datasets` page.
+  The golden gate was previously **unsatisfiable**: promotion was refused until
+  every row had an `expected_output`, and no endpoint could read or set it.
+- **Cancellation** — the invoker always supported it; nothing held the handle.
+  An in-process registry now maps a run id to its invoker.
+- **Run deletion** — refused while a run is executing.
+- **Run comparison** — deltas per metric, per sub-agent and per sample, with the
+  run snapshots checked so a judge or dataset change is reported instead of
+  being read as a regression.
+
 ### Tier 1 — small, high value
 
 | Item | Why | Where |
 |---|---|---|
-| **Baseline / regression comparison** | Run-over-run deltas per metric with span attribution: "faithfulness 0.91 → 0.84, 12/50 cases, `research_agent`". All ingredients exist because of the run snapshot. | New `GET /evaluations/{id}/compare/{other_id}` |
+
 | **Per-agent thresholds** | `{metric: {warning, critical}}` → PASS / WARNING / FAIL, replacing the single global `METRIC_PASS_THRESHOLD` | `agents.invocation_config` or a new column |
 | **Cost panel in the UI** | `usage` is already persisted per run; nothing renders it yet | `JobDetailsPage.jsx` |
-| **Dataset review UI** | The gate is enforced server-side; there is no screen for filling in `expected_output` row by row | New page under `/datasets` |
 | **Vertex managed metrics** | Half-working already; the registry unblocks the trajectory family | `metric_registry.py` + a `vertex_exec.py` |
 
 ### Tier 2 — moderate

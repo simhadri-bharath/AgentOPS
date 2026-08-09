@@ -28,7 +28,14 @@ DEFAULT_PROMPT_ONLY_METRICS: list[str] = [
     "trace_tool_success_rate",
 ]
 
-JOB_STATUSES: list[str] = ["draft", "queued", "running", "completed", "failed"]
+JOB_STATUSES: list[str] = [
+    "draft",
+    "queued",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+]
 
 # RAGAS is deliberately absent: it is not installed and has no code, and
 # offering it as a selectable framework was the same lie as the metric map.
@@ -185,3 +192,18 @@ def evaluation_result_from_orm(row: Any) -> EvaluationResultRead:
         tokens_out=row.tokens_out or 0,
         created_at=row.created_at,
     )
+
+
+class RunComparison(ORMBase):
+    """Two runs, metric by metric, plus whether they are actually comparable."""
+
+    evaluation_id: uuid.UUID
+    baseline_id: uuid.UUID
+    # False when the harness moved between the runs, in which case a delta is
+    # not evidence about the agent.
+    comparable: bool
+    summary: str = ""
+    warnings: list[str] = Field(default_factory=list)
+    metric_deltas: list[dict[str, Any]] = Field(default_factory=list)
+    regressed_samples: list[dict[str, Any]] = Field(default_factory=list)
+    span_deltas: list[dict[str, Any]] = Field(default_factory=list)

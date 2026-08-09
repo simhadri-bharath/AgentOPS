@@ -43,6 +43,30 @@ class DatasetRepository:
         await self._session.refresh(dataset)
         return dataset
 
+    async def record_edit(
+        self,
+        dataset: Dataset,
+        *,
+        file_path: str | None = None,
+        category_distribution: dict[str, int] | None = None,
+    ) -> Dataset:
+        """Bump the version after a content change.
+
+        A run snapshots dataset_version, so edited content must not be silently
+        comparable to a run made against the previous rows.
+        """
+        dataset.version = (dataset.version or 1) + 1
+        if file_path:
+            dataset.file_path = file_path
+        if category_distribution is not None:
+            dataset.category_distribution = category_distribution
+        # Editing rows invalidates a golden promotion made against older content.
+        if dataset.review_status == "golden":
+            dataset.review_status = "human_reviewed"
+        await self._session.flush()
+        await self._session.refresh(dataset)
+        return dataset
+
     async def set_review_status(self, dataset: Dataset, review_status: str) -> Dataset:
         dataset.review_status = review_status
         await self._session.flush()

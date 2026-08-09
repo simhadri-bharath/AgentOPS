@@ -1,7 +1,7 @@
 import React from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  Brain, Building2, LayoutDashboard, Bot, FlaskConical, Server,
+  Brain, Building2, LayoutDashboard, Bot, FlaskConical, Server, Database,
   History, Activity, Terminal, ShieldAlert, Crosshair, Library, Rocket, Settings
 } from 'lucide-react'
 import { useAgents } from '../context/AgentsContext'
@@ -75,6 +75,7 @@ export default function Sidebar() {
         <NavItem to="/agents" icon={Bot} label="Agents" badge={agents.length} />
 
         <NavSection label="Evaluation" />
+        <NavItem to="/datasets" icon={Database} label="Datasets" />
         <NavItem to="/evaluation" icon={FlaskConical} label="New Evaluation" />
        
         

@@ -35,3 +35,13 @@ export function createDatasetFromSessions(body) {
 export function setDatasetReviewStatus(datasetId, reviewStatus) {
   return api.patch(`/api/v1/datasets/${datasetId}/review`, { review_status: reviewStatus })
 }
+
+export function fetchDatasetRows(datasetId, { limit = 100, offset = 0, unreviewedOnly = false } = {}) {
+  const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  if (unreviewedOnly) qs.set('unreviewed_only', 'true')
+  return api.get(`/api/v1/datasets/${datasetId}/rows?${qs}`)
+}
+
+export function updateDatasetRow(datasetId, rowIndex, body) {
+  return api.patch(`/api/v1/datasets/${datasetId}/rows/${rowIndex}`, body)
+}

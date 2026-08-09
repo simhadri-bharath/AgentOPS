@@ -84,3 +84,15 @@ export function fetchMetricCatalogue() {
 export function fetchRecommendedMetrics(agentId) {
   return api.get(`/api/v1/agents/${agentId}/recommended-metrics`)
 }
+
+export function cancelEvaluation(evaluationId) {
+  return api.post(`/api/v1/evaluations/${evaluationId}/cancel`)
+}
+
+export function deleteEvaluation(evaluationId) {
+  return api.delete(`/api/v1/evaluations/${evaluationId}`)
+}
+
+export function compareEvaluations(evaluationId, baselineId) {
+  return api.get(`/api/v1/evaluations/${evaluationId}/compare?baseline=${baselineId}`)
+}

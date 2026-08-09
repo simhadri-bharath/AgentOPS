@@ -20,11 +20,14 @@ from app.schemas.evaluation import (
     EvaluationRunListResponse,
     EvaluationRunQueued,
     EvaluationRunRead,
+    RunComparison,
     evaluation_result_from_orm,
     evaluation_run_from_orm,
     normalize_framework,
 )
 from app.services.datasets.parser import parse_dataset_file
+from app.services.evaluation import registry
+from app.services.evaluation.comparison import build_comparison
 from app.services.evaluation.metric_registry import (
     METRIC_REGISTRY,
     UnknownMetricError,
@@ -369,6 +372,87 @@ async def get_evaluation_result(
     if not row or row.evaluation_run_id != evaluation_id:
         raise HTTPException(status_code=404, detail="Evaluation result not found")
     return evaluation_result_from_orm(row)
+
+
+@router.post("/{evaluation_id}/cancel", response_model=EvaluationRunRead)
+async def cancel_evaluation(
+    evaluation_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+) -> EvaluationRunRead:
+    """Stop a running evaluation.
+
+    Signals the in-flight invoker to stop dispatching. Requests already in
+    flight finish or time out; the run is then persisted with whatever it
+    completed rather than being abandoned mid-way.
+    """
+    repo = EvaluationRepository(session)
+    run = await repo.get_run(evaluation_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=_evaluation_not_found_detail(evaluation_id))
+
+    if run.status in ("completed", "failed", "cancelled"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run is already {run.status} and cannot be cancelled.",
+        )
+
+    signalled = registry.cancel(evaluation_id)
+    if not signalled:
+        # Queued but never started, or orphaned by a restart. Either way there
+        # is nothing running to signal, so mark it terminal directly.
+        run = await repo.update_run_status(
+            run,
+            "cancelled",
+            error_message="Cancelled before execution started.",
+            mark_completed=True,
+        )
+        await session.commit()
+    return evaluation_run_from_orm(run)
+
+
+@router.delete("/{evaluation_id}", response_model=dict)
+async def delete_evaluation(
+    evaluation_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Delete a run and its results. Refuses while it is still executing."""
+    repo = EvaluationRepository(session)
+    run = await repo.get_run(evaluation_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=_evaluation_not_found_detail(evaluation_id))
+    if registry.is_running(evaluation_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Run is executing. Cancel it before deleting.",
+        )
+    await repo.delete_run(evaluation_id)
+    await session.commit()
+    return {"message": "Evaluation deleted", "id": str(evaluation_id)}
+
+
+@router.get("/{evaluation_id}/compare", response_model=RunComparison)
+async def compare_evaluations(
+    evaluation_id: uuid.UUID,
+    baseline: uuid.UUID = Query(..., description="Run id to compare against"),
+    session: AsyncSession = Depends(get_session),
+) -> RunComparison:
+    """Compare two runs metric by metric, and say whether they are comparable.
+
+    A score moving is only meaningful if the harness did not move with it, so
+    differences in judge model, dataset version, metric config or invocation
+    interface are reported as warnings alongside the deltas.
+    """
+    repo = EvaluationRepository(session)
+    current = await repo.get_run(evaluation_id)
+    base = await repo.get_run(baseline)
+    if not current:
+        raise HTTPException(status_code=404, detail=_evaluation_not_found_detail(evaluation_id))
+    if not base:
+        raise HTTPException(status_code=404, detail=_evaluation_not_found_detail(baseline))
+
+    current_results, _ = await repo.list_results(evaluation_id, limit=1000)
+    base_results, _ = await repo.list_results(baseline, limit=1000)
+    return build_comparison(current, base, current_results, base_results)
 
 
 @router.get("/meta/metrics")
