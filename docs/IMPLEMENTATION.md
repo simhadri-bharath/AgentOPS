@@ -471,6 +471,21 @@ These are decisions, not omissions.
 
 ---
 
+## 14a. Endpoint coverage
+
+Every path the frontend calls was probed live against the running backend.
+All 40 respond correctly; the API surface has no gaps relative to the UI.
+
+One environment issue was found and fixed: `google-cloud-trace` is declared in
+`requirements.txt` but was absent from the environment, so `GET /api/v1/traces`
+returned **502 — cannot import name 'trace_v1'**, taking the Traces page, the
+Logs page and the AgentDetail latency panel down with it. `pip install -r
+requirements.txt` resolves it.
+
+Payload shapes were checked in both directions, not just status codes:
+`RedTeamRunCreate` against `startRedTeamRun`, and `RedTeamTestCaseCreate`
+against the Attack Library form. Both match.
+
 ## 15. Testing
 
 60 tests, `backend/tests/`. There were none before this work (`c547d76 "removed

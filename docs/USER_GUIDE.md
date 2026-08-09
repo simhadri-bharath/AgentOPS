@@ -63,6 +63,8 @@ Every run records both and shows an estimated cost. **Start with a small dataset
 ```bash
 # Backend
 cd backend
+pip install -r requirements.txt   # google-cloud-trace is easy to miss; without
+                                  # it the Traces and Logs pages return 502
 python -m alembic upgrade head
 python -m uvicorn app.main:app --reload --port 8000
 
@@ -421,6 +423,7 @@ not mean the agent is good.
 | `400 Unknown metric(s)` | A metric name not in the registry | Read `GET /api/v1/evaluations/meta/metrics` for valid names |
 | Cannot promote to `golden` | Rows missing `expected_output` | Fill them in — this gate is deliberate |
 | Judge errors on `tool_correctness` | Judge not passed to the metric | Fixed; if it recurs, check `JUDGE_MODEL` is reachable in your region |
+| Traces / Logs pages show 502 | `google-cloud-trace` not installed | `pip install -r requirements.txt` — it is declared but easy to miss |
 
 ---
 
