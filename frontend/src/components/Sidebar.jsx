@@ -2,7 +2,7 @@ import React from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   Brain, Building2, LayoutDashboard, Bot, FlaskConical, Server, Database,
-  History, Activity, Terminal, ShieldAlert, Crosshair, Library, Rocket, Settings
+  History, Activity, Terminal, ShieldAlert, Crosshair, Library, Rocket, Settings, ListChecks
 } from 'lucide-react'
 import { useAgents } from '../context/AgentsContext'
 
@@ -77,8 +77,7 @@ export default function Sidebar() {
         <NavSection label="Evaluation" />
         <NavItem to="/datasets" icon={Database} label="Datasets" />
         <NavItem to="/evaluation" icon={FlaskConical} label="New Evaluation" />
-       
-        
+        <NavItem to="/jobs" icon={ListChecks} label="Jobs" />
         <NavItem to="/history" icon={History} label="History" />
 
         <NavSection label="Observability" />

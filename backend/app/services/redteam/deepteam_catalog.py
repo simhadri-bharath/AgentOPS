@@ -36,7 +36,11 @@ class VulnerabilitySpec:
     description: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        # `id` mirrors `name`: existing UI code keys selections off id, and the
+        # DeepTeam class name is the stable identifier.
+        data["id"] = self.name
+        return data
 
 
 @dataclass
@@ -47,7 +51,10 @@ class AttackSpec:
     description: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data["id"] = self.name
+        data["type"] = self.kind  # older field name still read by the UI
+        return data
 
 
 @dataclass
@@ -57,7 +64,9 @@ class FrameworkSpec:
     description: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data["id"] = self.name
+        return data
 
 
 # Grouping is presentation only; membership is checked against what is installed

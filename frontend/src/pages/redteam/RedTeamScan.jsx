@@ -73,10 +73,13 @@ function Stepper({ steps, current }) {
 // ─── Main Wizard Component ────────────────────────────────────────────
 export default function RedTeamScan() {
   const nav = useNavigate()
-  const { agents } = useAgents()
+  const { selectableAgents } = useAgents()
 
   // Wizard state
   const [step, setStep] = useState(0)
+  // A standards preset replaces choosing from 37 vulnerabilities and 28
+  // attacks by hand. DeepTeam maps the standard to both itself.
+  const [framework, setFramework] = useState('')
   const [agentId, setAgentId] = useState('')
   const [scanMode, setScanMode] = useState('') // 'custom' | 'dynamic'
   const [judgeModel, setJudgeModel] = useState('gemini-2.5-pro')
@@ -106,6 +109,11 @@ export default function RedTeamScan() {
     queryKey: ['redteam', 'deepteam-vulns'],
     queryFn: redteamApi.fetchDeepTeamVulnerabilities,
     enabled: scanMode === 'dynamic',
+  })
+
+  const { data: frameworksData } = useQuery({
+    queryKey: ['redteam', 'deepteam-frameworks'],
+    queryFn: redteamApi.fetchDeepTeamFrameworks,
   })
 
   const { data: attacksData, isLoading: attacksLoading } = useQuery({
@@ -262,15 +270,18 @@ export default function RedTeamScan() {
       judge_model: judgeModel,
       target_purpose: targetPurpose,
       target_system_prompt: targetSystemPrompt,
-      vulnerabilities: vulns,
-      attacks,
+      framework: framework || null,
+      vulnerabilities: framework ? [] : vulns,
+      attacks: framework ? [] : attacks,
     })
   }
 
   const selectedAgent = agents.find((a) => a.id === agentId)
 
   // ─── Step definitions ───────────────────────────────────────────────
-  const dynamicSteps = ['Agent', 'Scan Mode', 'Metadata', 'Vulnerabilities', 'Enhancements', 'Launch']
+  const dynamicSteps = framework
+    ? ['Agent', 'Scan Mode', 'Metadata', 'Launch']
+    : ['Agent', 'Scan Mode', 'Metadata', 'Vulnerabilities', 'Enhancements', 'Launch']
   const customSteps = ['Agent', 'Scan Mode', 'Configure', 'Launch']
   const activeSteps = scanMode === 'dynamic' ? dynamicSteps : scanMode === 'custom' ? customSteps : ['Agent', 'Scan Mode']
 
@@ -309,7 +320,7 @@ export default function RedTeamScan() {
                 onChange={(e) => setAgentId(e.target.value)}
               >
                 <option value="">Select agent…</option>
-                {agents.map((a) => (
+                {selectableAgents.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.display_name || a.name} ({a.metadata?.region || a.region || 'us-central1'})
                   </option>
@@ -597,6 +608,29 @@ export default function RedTeamScan() {
               <h3 className="text-[15px] font-semibold text-indigo-600 mb-1">
                 Step 4: Select Vulnerabilities
               </h3>
+              <div className="mb-4 p-3 rounded-lg border" style={{ borderColor: '#C7D2FE', background: '#EEF2FF' }}>
+                <label className="block text-[12px] font-medium text-gray-800 mb-1">
+                  Scan against a standard (recommended)
+                </label>
+                <select
+                  className="w-full mb-1"
+                  value={framework}
+                  onChange={(e) => setFramework(e.target.value)}
+                >
+                  <option value="">Choose vulnerabilities manually</option>
+                  {(frameworksData?.frameworks || []).map((f) => (
+                    <option key={f.name} value={f.name}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="text-[11px] text-gray-500">
+                  {framework
+                    ? 'DeepTeam derives the vulnerabilities and attacks for this standard. The manual lists below are skipped.'
+                    : `${(vulnsData?.vulnerabilities || []).length} vulnerabilities and ${(attacksData?.attacks || []).length} attacks available. Picking a standard is usually faster.`}
+                </div>
+              </div>
+
               <p className="text-[12px] text-gray-500 mb-4">
                 Choose which vulnerability categories DeepTeam should test against your agent.
               </p>

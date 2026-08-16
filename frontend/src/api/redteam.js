@@ -87,6 +87,10 @@ export function fetchDeepTeamVulnerabilities() {
   return api.get('/api/v1/redteam/deepteam/vulnerabilities')
 }
 
+export function fetchDeepTeamFrameworks() {
+  return api.get('/api/v1/redteam/deepteam/frameworks')
+}
+
 export function fetchDeepTeamAttacks() {
   return api.get('/api/v1/redteam/deepteam/attacks')
 }

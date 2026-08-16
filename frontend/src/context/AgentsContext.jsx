@@ -100,6 +100,10 @@ export function AgentsProvider({ children }) {
   const value = useMemo(
     () => ({
       agents,
+      // Inactive agents (left behind by a GCP_PROJECT_ID change, or removed
+      // from GCP) cannot be invoked, so they stay visible on the Agents page
+      // but are never offered as a run target.
+      selectableAgents: agents.filter((a) => a.status !== 'Inactive'),
       total,
       loading,
       syncing,

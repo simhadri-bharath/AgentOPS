@@ -28,7 +28,7 @@ Deployments  →  Onboard  →  Test  →  Dataset  →  Evaluate  →  Scores p
 | **Scores** | Real DeepEval judged metrics, deterministic checks, and trace health |
 | **Attributes** | Scores each sub-agent, so a low result names a component rather than "the agent" |
 | **Bootstraps** | Builds evaluation datasets from the agent's own production sessions |
-| **Red-teams** | Adversarial scans via DeepTeam |
+| **Red-teams** | 37 vulnerabilities, 28 attacks, and standards presets (OWASP, NIST, MITRE, EU AI Act) via DeepTeam |
 
 It requires **no changes to your agent**. Nothing is instrumented, nothing
 redeployed. It reads what Agent Engine already records.

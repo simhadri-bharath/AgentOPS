@@ -396,6 +396,38 @@ the explicit-override path used by onboarding and PATCH.
 
 ---
 
+## 11a. Red teaming
+
+The catalogue is introspected from the installed DeepTeam rather than
+hand-written. The previous two literals exposed 21 of 37 vulnerabilities and 9
+of 28 attacks, and omitted every agentic one -- `GoalTheft`,
+`RecursiveHijacking`, `ToolOrchestrationAbuse`, `UnexpectedCodeExecution`,
+`AgentIdentityAbuse` -- which are the ones that matter for a tool-using ADK
+agent.
+
+| | Before | Now |
+|---|---|---|
+| Vulnerabilities | 21 hardcoded | 37, from the package |
+| Attacks | 9 hardcoded | 28, from the package |
+| Framework presets | none | 7 |
+
+Framework presets (OWASP Top 10, OWASP ASI 2026, NIST AI RMF, MITRE ATLAS,
+EU AI Act, Aegis, BeaverTails) are passed straight to `red_team(framework=...)`,
+which derives the vulnerabilities and attacks itself. That turns a scan from
+thirty-seven checkboxes into one choice.
+
+Unknown names are rejected with the valid list. They used to be logged and
+skipped, so a typo ran a smaller scan and still reported success.
+
+Scans run with `async_mode=True` and `REDTEAM_CONCURRENCY`. They were forced
+serial, and each attack is an agent round-trip plus judge calls.
+
+**Still deferred:** red team uses the legacy invoker, so its trace IDs remain
+synthetic. Migrating it to `AgentEngineInvoker` would give real traces,
+cancellation and per-span attribution for free.
+
+---
+
 ## 12. What is NOT built (deliberate)
 
 These are decisions, not omissions.

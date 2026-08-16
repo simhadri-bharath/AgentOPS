@@ -39,7 +39,7 @@ const STEP_META = {
 export default function Evaluation() {
   const nav = useNavigate()
   const [searchParams] = useSearchParams()
-  const { agents, loading: agentsLoading } = useAgents()
+  const { selectableAgents: agents, loading: agentsLoading } = useAgents()
 
   const [step, setStep] = useState(1)
   const [selectedAgent, setSelectedAgent] = useState(null)
