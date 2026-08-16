@@ -8,9 +8,8 @@ import Btn from '../components/Btn'
 import EmptyState from '../components/EmptyState'
 import { Table, THead, Th, Td, TRow } from '../components/Table'
 import PageHeader from '../components/PageHeader'
-import { Filter, RefreshCw, Loader2 } from 'lucide-react'
+import { RefreshCw, Loader2 } from 'lucide-react'
 import { useAgents } from '../context/AgentsContext'
-import { countByDeploymentType } from '../lib/agentMapper'
 
 const platformBadge = (p) => {
   if (p === 'Vertex AI') return <Badge variant="purple">{p}</Badge>
@@ -30,24 +29,29 @@ export default function Agents() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
 
-  const counts = useMemo(() => countByDeploymentType(agents), [agents])
-  const unhealthy = agents.filter((a) => a.status !== 'Healthy').length
+  // Inactive is not unhealthy: these are engines the configured project can no
+  // longer reach, not agents that are failing.
+  const inactive = agents.filter((a) => a.status === 'Inactive').length
+  const degraded = agents.filter((a) => a.status !== 'Healthy' && a.status !== 'Inactive').length
 
   const filtered = useMemo(() => {
-    return agents.filter((a) => {
+    const list = agents.filter((a) => {
       const q = search.trim().toLowerCase()
       const matchesSearch =
         !q ||
         a.name.toLowerCase().includes(q) ||
         a.slug?.toLowerCase().includes(q) ||
         a.region.toLowerCase().includes(q)
-      const matchesType =
+      const matchesStatus =
         typeFilter === 'all' ||
-        (typeFilter === 'Vertex AI' && a.platform === 'Vertex AI') ||
-        (typeFilter === 'Cloud Run' && a.platform === 'Cloud Run') ||
-        (typeFilter === 'GKE' && a.platform === 'GKE')
-      return matchesSearch && matchesType
+        (typeFilter === 'active' && a.status !== 'Inactive') ||
+        (typeFilter === 'inactive' && a.status === 'Inactive')
+      return matchesSearch && matchesStatus
     })
+    // Agents you can actually run against come first.
+    return [...list].sort(
+      (a, b) => (a.status === 'Inactive' ? 1 : 0) - (b.status === 'Inactive' ? 1 : 0),
+    )
   }, [agents, search, typeFilter])
 
   const handleSync = async () => {
@@ -60,8 +64,11 @@ export default function Agents() {
 
   return (
     <div>
-      <PageHeader title="All Agents" subtitle="Discovered from Vertex AI, Cloud Run, and GKE">
-        <Btn><Filter size={13} />Filter</Btn>
+      <PageHeader
+        title="All Agents"
+        subtitle="Agent Engine deployments discovered in the configured GCP project"
+      >
+        {/* A "Filter" button with no handler; the registry card filters. */}
         <Btn primary onClick={handleSync} disabled={syncing}>
           {syncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
           {syncing ? 'Syncing…' : 'Re-discover'}
@@ -77,14 +84,24 @@ export default function Agents() {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-3 mb-5">
-        <StatCard label="Vertex AI" value={String(counts.vertex_ai)} />
-        <StatCard label="Cloud Run" value={String(counts.cloud_run)} />
-        <StatCard label="GKE" value={String(counts.gke)} />
+      {/* Cloud Run and GKE discovery does not exist, so those cards could only
+          ever read 0. */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
         <StatCard
-          label="Unhealthy"
-          value={String(unhealthy)}
-          valueStyle={{ color: unhealthy ? '#EF4444' : undefined }}
+          label="Evaluable"
+          value={String(agents.length - inactive)}
+          meta="Reachable in the configured project"
+        />
+        <StatCard
+          label="Inactive"
+          value={String(inactive)}
+          meta={inactive ? 'Not reachable — cannot be evaluated' : 'All agents reachable'}
+        />
+        <StatCard
+          label="Degraded"
+          value={String(degraded)}
+          valueStyle={{ color: degraded ? '#EF4444' : undefined }}
+          meta="Reachable but reporting errors"
         />
       </div>
 
@@ -102,10 +119,9 @@ export default function Agents() {
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
           >
-            <option value="all">All types</option>
-            <option value="Vertex AI">Vertex AI</option>
-            <option value="Cloud Run">Cloud Run</option>
-            <option value="GKE">GKE</option>
+            <option value="all">All agents</option>
+            <option value="active">Evaluable only</option>
+            <option value="inactive">Inactive only</option>
           </select>
         </CardHeader>
         {loading ? (
@@ -126,7 +142,11 @@ export default function Agents() {
             <THead>
               <Th>Name</Th>
               <Th>Platform</Th>
-              <Th>Model</Th>
+              {/* Agent Engine does not report a model name, so this column read
+                  "—" for every agent that could actually be evaluated. Type and
+                  environment are what select metrics and gate red-team runs. */}
+              <Th>Type</Th>
+              <Th>Environment</Th>
               <Th>Status</Th>
               <Th>Last active</Th>
               <Th></Th>
@@ -146,14 +166,25 @@ export default function Agents() {
                     </div>
                   </Td>
                   <Td>{platformBadge(a.platform)}</Td>
-                  <Td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{a.model}</Td>
+                  <Td style={{ fontSize: 12 }}>{(a.agentType || 'unknown').replace(/_/g, ' ')}</Td>
+                  <Td style={{ fontSize: 12, color: '#6B7280' }}>{a.environment}</Td>
                   <Td>{statusBadge(a.status)}</Td>
                   <Td style={{ color: '#6B7280' }}>{a.lastActive}</Td>
                   <Td>
+                    {/* The wizard only offers reachable agents, so this button
+                        used to land an inactive agent on a picker that would
+                        never list it. */}
                     <Btn
                       style={{ fontSize: 11 }}
+                      disabled={a.status === 'Inactive'}
+                      title={
+                        a.status === 'Inactive'
+                          ? 'This agent is not reachable in the configured project, so it cannot be evaluated.'
+                          : undefined
+                      }
                       onClick={(e) => {
                         e.stopPropagation()
+                        if (a.status === 'Inactive') return
                         nav(`/evaluation?agentId=${a.id}`)
                       }}
                     >

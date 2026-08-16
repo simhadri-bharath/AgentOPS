@@ -11,8 +11,16 @@ import { Table, THead, Th, Td, TRow } from '../../components/Table'
 import * as redteamApi from '../../api/redteam'
 import { fetchRedTeamRuns } from '../../api/redteam'
 import { runStatusVariant, shortId } from '../../lib/redteamMapper'
+import { useAgents } from '../../context/AgentsContext'
+import { formatRelativeTime } from '../../lib/agentMapper'
+
+const statusLabel = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Unknown')
 
 export default function RedTeamDashboard() {
+  const { agents } = useAgents()
+  // A scan has no name of its own, so it is identified by what it tested.
+  const agentName = (id) =>
+    agents.find((a) => String(a.id) === String(id))?.name || shortId(id)
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['redteam', 'dashboard'],
     queryFn: redteamApi.fetchRedTeamDashboard,
@@ -80,10 +88,10 @@ export default function RedTeamDashboard() {
           ) : (
             <Table>
               <THead>
-                <Th>Run</Th>
+                <Th>Scan</Th>
                 <Th>Mode</Th>
                 <Th>Status</Th>
-                <Th>Failed</Th>
+                <Th>Findings</Th>
                 <Th></Th>
               </THead>
               <tbody>
@@ -91,7 +99,13 @@ export default function RedTeamDashboard() {
                   const mode = (r.config?.scan_mode) || 'custom'
                   return (
                     <TRow key={r.id}>
-                      <Td>{shortId(r.id)}</Td>
+                      <Td>
+                        <div className="font-medium">{agentName(r.agent_id)}</div>
+                        <div style={{ fontSize: 10, color: '#9CA3AF' }}>
+                          {(r.categories || []).join(', ') || 'no categories'}
+                          {r.created_at ? ` · ${formatRelativeTime(r.created_at)}` : ''}
+                        </div>
+                      </Td>
                       <Td>
                         <span
                           className="text-[10px] font-medium px-1.5 py-0.5 rounded"
@@ -104,9 +118,17 @@ export default function RedTeamDashboard() {
                         </span>
                       </Td>
                       <Td>
-                        <Badge variant={runStatusVariant(r.status)}>{r.status}</Badge>
+                        <Badge variant={runStatusVariant(r.status)}>
+                          {statusLabel(r.status)}
+                        </Badge>
                       </Td>
-                      <Td>{r.failed}</Td>
+                      <Td>
+                        {/* "0 failed" reads as a clean bill of health even when a
+                            scan was cancelled before it tested anything. */}
+                        {r.total_tests
+                          ? `${r.failed} of ${r.total_tests}`
+                          : <span style={{ color: '#9CA3AF' }}>not run</span>}
+                      </Td>
                       <Td>
                         <Link to={`/red-team/runs/${r.id}`} className="text-indigo-600 text-[12px]">
                           View
@@ -121,15 +143,47 @@ export default function RedTeamDashboard() {
         </Card>
 
         <Card>
-          <CardHeader title="Pass rate trend" />
+          {/* Called a "trend" while listing one row per scan with no time axis. */}
+          <CardHeader title="Pass rate by scan" />
           {(stats?.pass_rate_trend || []).length === 0 ? (
-            <p className="text-[12px] text-gray-500 p-4">Complete a scan to see trends.</p>
+            <p className="text-[12px] text-gray-500 p-4">
+              Complete a scan to see pass rates.
+            </p>
           ) : (
             <ul className="p-3 space-y-2">
               {stats.pass_rate_trend.map((t) => (
-                <li key={t.run_id} className="flex justify-between text-[12px]">
-                  <span className="text-gray-600">{shortId(t.run_id)}</span>
-                  <span className="font-medium">{t.pass_rate}% pass</span>
+                <li key={t.run_id}>
+                  <Link
+                    to={`/red-team/runs/${t.run_id}`}
+                    className="flex items-center gap-2 text-[12px]"
+                  >
+                    <span className="text-gray-600 truncate" style={{ minWidth: 78 }}>
+                      {formatRelativeTime(t.created_at)}
+                    </span>
+                    {/* A scan can be 20% pass with 0 failed: the rest were
+                        judged uncertain or errored before they were scored. */}
+                    <span
+                      style={{ fontSize: 11, color: '#9CA3AF', minWidth: 62 }}
+                      title="Attacks the judge confirmed as failures. Any remainder was uncertain or did not complete."
+                    >
+                      {t.failed} failed
+                    </span>
+                    <span className="flex-1 h-1.5 rounded bg-gray-100 overflow-hidden">
+                      <span
+                        className="block h-full rounded"
+                        style={{
+                          width: `${Math.max(0, Math.min(100, t.pass_rate))}%`,
+                          background:
+                            t.pass_rate >= 100
+                              ? '#22C55E'
+                              : t.pass_rate >= 70
+                                ? '#F59E0B'
+                                : '#EF4444',
+                        }}
+                      />
+                    </span>
+                    <span className="font-medium tabular-nums">{t.pass_rate}%</span>
+                  </Link>
                 </li>
               ))}
             </ul>

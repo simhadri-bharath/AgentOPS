@@ -24,6 +24,7 @@ import RedTeamRunResults from './pages/redteam/RedTeamRunResults'
 import VulnerabilityDetail from './pages/redteam/VulnerabilityDetail'
 import Settings from './pages/Settings'
 import Onboarding from './pages/Onboarding'
+import NotFound from './pages/NotFound'
 
 export default function App() {
   // Adopt the backend's severity thresholds once, so findings are coloured by
@@ -66,6 +67,8 @@ export default function App() {
           />
           <Route path="settings" element={<Settings />} />
           <Route path="onboarding" element={<Onboarding />} />
+          {/* Inside the layout, so a wrong URL keeps its navigation. */}
+          <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
       </TracesProvider>
