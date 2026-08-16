@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.repositories.agent_repository import AgentRepository
 from app.repositories.redteam_repository import RedTeamRepository
-from app.services.evaluation.agent_invoker import AgentInvoker
+from app.services.evaluation import registry
+from app.services.invokers.agent_engine import REDTEAM_USER_ID, AgentEngineInvoker
 from app.services.redteam.classifier import ResponseClassifier
 from app.services.redteam.report_generator import generate_report
 from app.services.redteam.case_plan import build_run_cases
@@ -26,9 +27,10 @@ class RedTeamRunner:
         self._session = session
         self._repo = RedTeamRepository(session)
         self._agent_repo = AgentRepository(session)
-        self._invoker = AgentInvoker()
+        self._invoker = AgentEngineInvoker(user_id=REDTEAM_USER_ID)
 
     async def run(self, run_id: uuid.UUID) -> None:
+        registry.register(run_id, self._invoker)
         run = await self._repo.get_run(run_id)
         if not run:
             logger.error("Red team run not found: %s", run_id)
@@ -88,10 +90,23 @@ class RedTeamRunner:
             result_rows: list[dict[str, Any]] = []
 
             for idx, case in enumerate(cases):
+                if self._invoker.cancelled:
+                    logger.info(
+                        "Red-team scan cancelled after %s case(s)",
+                        idx,
+                        extra={"component": "redteam_runner", "run_id": str(run_id)},
+                    )
+                    break
+
                 invoke = await self._invoke_one(agent.endpoint_url, case.prompt)
                 response_text = invoke.output if not invoke.error else ""
-                trace_id = extract_trace_id(invoke.raw) or correlation_trace_id(
-                    str(run_id), case.id
+                # The invocation id is a real, resolvable identifier. The old
+                # path fabricated "redteam-<hex>", which Cloud Trace could
+                # never resolve, so the observability column was decorative.
+                trace_id = (
+                    (invoke.trace.invocation_id if invoke.trace else None)
+                    or extract_trace_id(invoke.raw_events)
+                    or correlation_trace_id(str(run_id), case.id)
                 )
 
                 if invoke.error:
@@ -279,9 +294,9 @@ class RedTeamRunner:
             await self._session.commit()
 
     async def _invoke_one(self, resource_name: str, prompt: str):
-        return await asyncio.to_thread(
-            self._invoker.invoke_agent,
-            resource_name,
-            prompt,
-            user_id="agentops_redteam",
-        )
+        """Invoke one attack prompt and return the harvested outcome.
+
+        Uses the same invoker as evaluation, so a red-team finding carries the
+        real trace, trajectory and sub-agent path instead of a synthetic id.
+        """
+        return await self._invoker.invoke(resource_name, prompt)

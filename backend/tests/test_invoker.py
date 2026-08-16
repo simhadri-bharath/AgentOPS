@@ -64,3 +64,42 @@ async def test_cancel_short_circuits_the_batch():
 @pytest.mark.asyncio
 async def test_empty_batch_makes_no_calls():
     assert await AgentEngineInvoker().batch_invoke("whatever", []) == []
+
+
+def test_sync_bridge_runs_coroutine_from_sync_code():
+    """DeepTeam's model_callback must be sync while the invoker is async.
+
+    asyncio.run() is not a safe bridge: DeepTeam may call the callback from
+    inside its own running loop, where asyncio.run raises.
+    """
+    from app.services.invokers.sync_bridge import run_sync
+
+    async def work() -> str:
+        return "done"
+
+    assert run_sync(work()) == "done"
+
+
+def test_sync_bridge_works_from_inside_a_running_loop():
+    import asyncio as _asyncio
+
+    from app.services.invokers.sync_bridge import run_sync
+
+    async def outer() -> str:
+        # Simulates DeepTeam invoking the sync callback from its own loop.
+        return await _asyncio.to_thread(lambda: run_sync(_inner()))
+
+    async def _inner() -> str:
+        return "bridged"
+
+    assert _asyncio.run(outer()) == "bridged"
+
+
+def test_sync_bridge_propagates_errors():
+    from app.services.invokers.sync_bridge import run_sync
+
+    async def boom() -> None:
+        raise RuntimeError("agent unreachable")
+
+    with pytest.raises(RuntimeError, match="agent unreachable"):
+        run_sync(boom())

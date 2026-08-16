@@ -422,9 +422,20 @@ skipped, so a typo ran a smaller scan and still reported success.
 Scans run with `async_mode=True` and `REDTEAM_CONCURRENCY`. They were forced
 serial, and each attack is an agent round-trip plus judge calls.
 
-**Still deferred:** red team uses the legacy invoker, so its trace IDs remain
-synthetic. Migrating it to `AgentEngineInvoker` would give real traces,
-cancellation and per-span attribution for free.
+Both scan modes now use `AgentEngineInvoker`, the same one evaluation uses, so
+a finding carries the real invocation id, the sub-agent path and the tools that
+were called. Previously custom mode fabricated `redteam-<hex>` -- which Cloud
+Trace could never resolve -- and dynamic mode wrote `trace_id=None`, leaving the
+observability column decorative.
+
+`POST /redteam/runs/{id}/cancel` stops a scan. There was no way to stop one
+short of restarting the process.
+
+DeepTeam's `model_callback` must be synchronous while the invoker is async.
+`asyncio.run()` is not a safe bridge -- with `async_mode=True` DeepTeam may call
+the callback from inside its own running loop, where it raises -- so the
+coroutine is submitted to a dedicated loop on its own thread
+(`invokers/sync_bridge.py`), which is correct from any caller.
 
 ---
 

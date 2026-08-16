@@ -12,7 +12,9 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.repositories.agent_repository import AgentRepository
 from app.repositories.redteam_repository import RedTeamRepository
-from app.services.evaluation.agent_invoker import AgentInvoker
+from app.services.evaluation import registry
+from app.services.invokers.agent_engine import REDTEAM_USER_ID, AgentEngineInvoker
+from app.services.invokers.sync_bridge import run_sync
 
 logger = get_logger(__name__)
 
@@ -398,9 +400,14 @@ class DeepTeamService:
         self._session = session
         self._repo = RedTeamRepository(session)
         self._agent_repo = AgentRepository(session)
-        self._invoker = AgentInvoker()
+        self._invoker = AgentEngineInvoker(user_id=REDTEAM_USER_ID)
+        # Kept so a finding can carry the real trace from its invocation.
+        # DeepTeam hands back test cases after the run, with no link to the
+        # invocation that produced them, so traces are keyed by prompt.
+        self._traces_by_prompt: dict[str, dict[str, object]] = {}
 
     async def run(self, run_id: uuid.UUID) -> None:
+        registry.register(run_id, self._invoker)
         run = await self._repo.get_run(run_id)
         if not run:
             logger.error("DeepTeam run not found: %s", run_id)
@@ -438,8 +445,6 @@ class DeepTeamService:
             extra={"component": "deepteam_service", "run_id": str(run_id)},
         )
 
-        # Initialize the invoker for agent communication
-        self._invoker.initialize()
         endpoint_url = agent.endpoint_url
 
         # Build a SYNCHRONOUS model callback — DeepTeam wraps it internally.
@@ -524,6 +529,7 @@ class DeepTeamService:
 
                 vuln_name = getattr(test, "vulnerability", "unknown")
                 input_text = getattr(test, "input", "") or ""
+                harvested = self._traces_by_prompt.get(input_text.strip()[:4000], {})
                 actual_output = getattr(test, "actual_output", "") or ""
                 reason = getattr(test, "reason", "") or ""
                 attack_method = getattr(test, "attack_method", None)
@@ -566,10 +572,14 @@ class DeepTeamService:
                     classification=classification,
                     score=float(score) if score is not None else None,
                     reason=reason[:2000] if reason else None,
-                    trace_id=None,
-                    latency_ms=None,
+                    trace_id=harvested.get("trace_id"),
+                    latency_ms=harvested.get("latency_ms"),
                     metadata={
                         "scan_mode": "dynamic",
+                        # From the real invocation, so a finding can be traced
+                        # back to what the agent actually did.
+                        "agent_path": harvested.get("agent_path") or [],
+                        "tools_called": harvested.get("tools") or [],
                         "vulnerability": vuln_name,
                         "vulnerability_type": str(vuln_type) if vuln_type else None,
                         "attack_method": attack_method,
@@ -628,28 +638,28 @@ class DeepTeamService:
             await self._fail_run(run, str(exc))
 
     def _invoke_agent(self, endpoint_url: str, prompt: str) -> str:
-        """Synchronously invoke the agent via the existing AgentInvoker."""
-        row = {"input": prompt}
-        results = self._invoker.batch_invoke(endpoint_url, [row])
-        if results and results[0].output:
-            return results[0].output
-        # Fallback: try stream_query
-        from app.core.config import get_settings
-        from app.services.gcp.auth import require_adc
-        from app.services.evaluation.reasoning_engine_direct import stream_query_prompt
+        """Invoke the agent from DeepTeam's synchronous callback.
 
-        settings = get_settings()
-        auth = require_adc()
-        project_id = settings.gcp_project_id or auth.project_id or ""
-        text, _, err = stream_query_prompt(
-            project_id=project_id,
-            region=settings.gcp_region,
-            resource_name=endpoint_url,
-            prompt=prompt,
-        )
-        if err:
-            raise RuntimeError(f"Agent invocation failed: {err}")
-        return text or ""
+        Goes through the same invoker as evaluation, so a scan produces a real
+        trace and honours cancellation. The bridge is needed because the
+        callback must be sync while the invoker is async, and DeepTeam may call
+        it from inside its own event loop.
+        """
+        outcome = run_sync(self._invoker.invoke(endpoint_url, prompt))
+        if outcome.trace is not None:
+            self._traces_by_prompt[prompt.strip()[:4000]] = {
+                "trace_id": outcome.trace.invocation_id,
+                "latency_ms": outcome.latency_ms,
+                "agent_path": list(outcome.trace.agent_path),
+                "tools": [t.name for t in outcome.trace.trajectory],
+            }
+        if outcome.output:
+            return outcome.output
+        # An empty answer is a legitimate result -- it is often the agent
+        # refusing the attack -- so it is returned rather than raised.
+        if outcome.state.value in ("AUTH_ERROR", "RATE_LIMITED"):
+            raise RuntimeError(f"{outcome.state.value}: {outcome.error}")
+        return ""
 
     async def _fail_run(self, run, error_message: str) -> None:
         await self._repo.update_run(

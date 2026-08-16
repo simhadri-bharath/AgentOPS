@@ -5,6 +5,7 @@ import uuid
 from app.core.database import get_session_factory
 from app.core.logging import get_logger
 from app.repositories.redteam_repository import RedTeamRepository
+from app.services.evaluation import registry
 
 logger = get_logger(__name__)
 
@@ -45,6 +46,11 @@ async def run_redteam_background(run_id: str) -> None:
             extra={"component": "redteam_tasks", "run_id": run_id},
         )
         await _mark_failed(run_uuid, str(exc))
+    finally:
+        # The runner registers its invoker so the run can be cancelled. Clearing
+        # it here covers every exit -- success, failure and crash -- so a
+        # finished run is never left looking cancellable.
+        registry.unregister(run_uuid)
 
 
 async def _mark_failed(run_id: uuid.UUID, error_message: str) -> None:

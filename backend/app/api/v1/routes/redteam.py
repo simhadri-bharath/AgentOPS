@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_session
 from app.repositories.agent_repository import AgentRepository
 from app.repositories.redteam_repository import RedTeamRepository
+from app.services.evaluation import registry
 from app.services.redteam import deepteam_catalog
 from app.services.redteam.deepteam_catalog import DeepTeamUnavailable
 from app.schemas.redteam import (
@@ -162,6 +163,38 @@ async def list_redteam_runs(
         limit=limit,
         offset=offset,
     )
+
+
+@router.post("/runs/{run_id}/cancel", response_model=RedTeamRunRead)
+async def cancel_redteam_run(
+    run_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+) -> RedTeamRunRead:
+    """Stop a running scan.
+
+    Scans are long -- each attack is an agent round-trip plus judge calls -- and
+    previously there was no way to stop one short of restarting the process.
+    """
+    repo = RedTeamRepository(session)
+    run = await repo.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Red team run {run_id} not found")
+    if run.status in ("completed", "failed", "cancelled"):
+        raise HTTPException(
+            status_code=409, detail=f"Run is already {run.status}."
+        )
+
+    if not registry.cancel(run_id):
+        # Queued but never started, or orphaned by a restart: nothing is
+        # running to signal, so mark it terminal directly.
+        run = await repo.update_run(
+            run,
+            status="cancelled",
+            error_message="Cancelled before execution started.",
+            mark_completed=True,
+        )
+        await session.commit()
+    return redteam_run_from_orm(run)
 
 
 @router.get("/runs/{run_id}", response_model=RedTeamRunRead)
