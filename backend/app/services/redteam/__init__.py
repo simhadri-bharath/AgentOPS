@@ -1,6 +1,6 @@
-"""Red team security scanning module (separate from standard evaluations)."""
+"""Red team security scanning.
 
-from app.services.redteam.orchestrator import RedTeamOrchestrator
-from app.services.redteam.runner import RedTeamRunner
-
-__all__ = ["RedTeamOrchestrator", "RedTeamRunner"]
+No eager imports: re-exporting the runners here pulls the invoker during
+package init, which is how the evaluation package ended up with an import
+cycle. Import the modules directly instead.
+"""

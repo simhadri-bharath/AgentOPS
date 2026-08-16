@@ -1,0 +1,1 @@
+{"detail":"Vulnerability 'PromptLeakage' rejected types ['secrets and credentials']: The \"secrets and credentials\" does not exist for the Prompt Leakage vulnerability. The available types are \"secrets_and_credentials\", \"instructions\", \"guard_exposure\", and \"permissions_and_roles\"."}

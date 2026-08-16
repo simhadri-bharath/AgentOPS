@@ -14,9 +14,12 @@ from app.repositories.agent_repository import AgentRepository
 from app.repositories.redteam_repository import RedTeamRepository
 from app.services.evaluation import registry
 from app.services.invokers.agent_engine import REDTEAM_USER_ID, AgentEngineInvoker
-from app.services.invokers.sync_bridge import run_sync
 
 logger = get_logger(__name__)
+
+# What we hand DeepTeam when the agent produces no text. Phrased as an observed
+# outcome rather than a refusal the agent actually uttered.
+NO_RESPONSE_SENTINEL = "[no output produced by the agent]"
 
 from app.services.redteam import deepteam_catalog
 from app.services.redteam.scoring_config import SCORING
@@ -452,20 +455,24 @@ class DeepTeamService:
 
         endpoint_url = agent.endpoint_url
 
-        # Build a SYNCHRONOUS model callback — DeepTeam wraps it internally.
-        # Signature: Callable[[str, Optional[List[RTTurn]]], RTTurn]
+        # DeepTeam wraps the callback based on async_mode: with async_mode=True
+        # it does `await model_callback(...)`. A sync callback therefore raises,
+        # and ignore_errors=True swallows it as "Error generating output from
+        # target LLM" -- every attack silently errors. The invoker is async, so
+        # the callback is async too.
         from deepteam.test_case import RTTurn
 
-        def model_callback(user_input: str, turns=None) -> RTTurn:
+        async def model_callback(user_input: str, turns=None) -> RTTurn:
             try:
-                result = self._invoke_agent(endpoint_url, user_input)
+                result = await self._invoke_agent_async(endpoint_url, user_input)
                 return RTTurn(role="assistant", content=result)
             except Exception as exc:
-                logger.warning("Agent invocation error during DeepTeam scan: %s", exc)
-                return RTTurn(
-                    role="assistant",
-                    content=f"[Agent error: {exc}]",
+                logger.warning(
+                    "Agent invocation error during DeepTeam scan: %s",
+                    exc,
+                    extra={"component": "deepteam_service"},
                 )
+                return RTTurn(role="assistant", content=f"[Agent error: {exc}]")
 
         try:
             # One shared judge across evaluation and both red-team modes.
@@ -587,6 +594,9 @@ class DeepTeamService:
                         # back to what the agent actually did.
                         "agent_path": harvested.get("agent_path") or [],
                         "tools_called": harvested.get("tools") or [],
+                        "invocation_state": harvested.get("invocation_state"),
+                        "invocation_error": harvested.get("invocation_error"),
+                        "empty_response": harvested.get("empty_response"),
                         "vulnerability": vuln_name,
                         "vulnerability_type": str(vuln_type) if vuln_type else None,
                         "attack_method": attack_method,
@@ -644,29 +654,31 @@ class DeepTeamService:
             logger.exception("DeepTeam scan failed: %s", exc)
             await self._fail_run(run, str(exc))
 
-    def _invoke_agent(self, endpoint_url: str, prompt: str) -> str:
-        """Invoke the agent from DeepTeam's synchronous callback.
+    async def _invoke_agent_async(self, endpoint_url: str, prompt: str) -> str:
+        """Invoke the agent for one generated attack.
 
-        Goes through the same invoker as evaluation, so a scan produces a real
-        trace and honours cancellation. The bridge is needed because the
-        callback must be sync while the invoker is async, and DeepTeam may call
-        it from inside its own event loop.
+        Same invoker as evaluation, so a finding carries the real trace.
         """
-        outcome = run_sync(self._invoker.invoke(endpoint_url, prompt))
-        if outcome.trace is not None:
-            self._traces_by_prompt[prompt.strip()[:4000]] = {
-                "trace_id": outcome.trace.invocation_id,
-                "latency_ms": outcome.latency_ms,
-                "agent_path": list(outcome.trace.agent_path),
-                "tools": [t.name for t in outcome.trace.trajectory],
-            }
+        outcome = await self._invoker.invoke(endpoint_url, prompt)
+        # Record the invocation state alongside the trace. Without it an empty
+        # answer is indistinguishable from a failed call.
+        self._traces_by_prompt[prompt.strip()[:4000]] = {
+            "trace_id": outcome.trace.invocation_id if outcome.trace else None,
+            "latency_ms": outcome.latency_ms,
+            "agent_path": list(outcome.trace.agent_path) if outcome.trace else [],
+            "tools": [t.name for t in outcome.trace.trajectory] if outcome.trace else [],
+            "invocation_state": outcome.state.value,
+            "invocation_error": outcome.error,
+            "empty_response": not bool(outcome.output.strip()),
+        }
         if outcome.output:
             return outcome.output
-        # An empty answer is a legitimate result -- it is often the agent
-        # refusing the attack -- so it is returned rather than raised.
         if outcome.state.value in ("AUTH_ERROR", "RATE_LIMITED"):
             raise RuntimeError(f"{outcome.state.value}: {outcome.error}")
-        return ""
+        # An agent that answers nothing has, for red-team purposes, refused --
+        # a finding, not a failure. DeepTeam treats "" as an error, so the
+        # outcome is stated explicitly and the true state kept in metadata.
+        return NO_RESPONSE_SENTINEL
 
     async def _fail_run(self, run, error_message: str) -> None:
         await self._repo.update_run(

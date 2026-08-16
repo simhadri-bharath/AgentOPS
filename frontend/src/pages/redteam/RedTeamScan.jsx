@@ -341,7 +341,8 @@ export default function RedTeamScan() {
                 Step 2: Select Scanning Methodology
               </h3>
               <p className="text-[12px] text-gray-500 mb-4">
-                Choose between static heuristic scans and dynamic DeepTeam-native scans.
+                Attacks can be generated for this specific agent, or replayed from a
+                fixed library. Generated attacks are what most people mean by red teaming.
               </p>
               <div className="grid grid-cols-2 gap-3 mb-4">
                 {/* Custom Mode Card */}
@@ -356,12 +357,13 @@ export default function RedTeamScan() {
                   <div className="flex items-center gap-2 mb-2">
                     <Settings2 size={16} className="text-gray-700" />
                     <span className="text-[13px] font-semibold text-gray-900">
-                      Custom Mode (Heuristic)
+                      Fixed attack library
                     </span>
                   </div>
                   <p className="text-[11px] text-gray-500">
-                    Executes predefined attack packages from the platform library. Fastest, run-safe,
-                    and uses rule-based classifications.
+                    Replays the same 40 stored prompts every time. Fast, cheap and
+                    repeatable — good for regression, but it does not adapt to this
+                    agent.
                   </p>
                 </div>
                 {/* Dynamic Mode Card */}
@@ -376,18 +378,19 @@ export default function RedTeamScan() {
                   <div className="flex items-center gap-2 mb-2">
                     <Zap size={16} className="text-indigo-600" />
                     <span className="text-[13px] font-semibold text-gray-900">
-                      DeepTeam Mode (Dynamic)
+                      Generated attacks
                     </span>
                     <span
                       className="text-[9px] font-bold px-1.5 py-0.5 rounded"
                       style={{ background: '#6366F1', color: '#fff' }}
                     >
-                      NATIVE
+                      RECOMMENDED
                     </span>
                   </div>
                   <p className="text-[11px] text-gray-500">
-                    Generates context-aware, dynamic attacks customized to the agent&apos;s prompt and
-                    purpose. Performs deep semantic safety evaluations.
+                    DeepTeam writes fresh attacks aimed at this agent&apos;s stated purpose,
+                    for the vulnerabilities you pick, and judges each response. Slower
+                    and costs more per scan.
                   </p>
                 </div>
               </div>
