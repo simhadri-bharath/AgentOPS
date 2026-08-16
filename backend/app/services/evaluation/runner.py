@@ -251,15 +251,23 @@ class EvaluationRunner:
             usage = self._usage(cases, per_sample)
             aggregates = aggregate(cases, [s.scores for s in per_sample])
             await self._persist(run, cases, per_sample)
+
+            # A run where nothing was successfully invoked is not a completed
+            # evaluation -- it is an outage. Reporting it as completed would let
+            # the dashboard count an unreachable agent as a healthy run.
+            status, failure = self._terminal_status(cases)
             await self._eval_repo.update_run_status(
                 run,
-                "completed",
+                status,
+                error_message=failure,
                 aggregate_scores=aggregates,
                 usage=usage,
                 mark_completed=True,
             )
             await self._session.commit()
-            logger.info("Evaluation completed", extra=log_extra)
+            logger.info(
+                "Evaluation %s", status, extra={**log_extra, "states": aggregates.get("states")}
+            )
 
         except Exception as exc:
             logger.exception("Evaluation failed", extra=log_extra)
@@ -272,6 +280,29 @@ class EvaluationRunner:
                 await self._session.commit()
 
     # -- steps ----------------------------------------------------------
+
+    @staticmethod
+    def _terminal_status(cases: list[EvaluationCase]) -> tuple[str, str | None]:
+        """completed, or failed when no sample was actually invoked.
+
+        Partial failure still completes -- the scored samples are real results.
+        Total failure does not, and the message names the dominant cause, so an
+        unreachable agent is not counted as a healthy run with empty scores.
+        """
+        if not cases:
+            return "failed", "Dataset produced no samples."
+        if any(c.state is InvocationState.SUCCESS for c in cases):
+            return "completed", None
+
+        counts: dict[str, int] = {}
+        for case in cases:
+            counts[case.state.value] = counts.get(case.state.value, 0) + 1
+        dominant = max(counts, key=lambda k: counts[k])
+        detail = next(
+            (c.error for c in cases if c.state.value == dominant and c.error), ""
+        )
+        summary = f"No sample was invoked successfully ({dominant} x{counts[dominant]})."
+        return "failed", f"{summary} {detail}".strip()[:2000]
 
     async def _load(self, run: Any) -> tuple[Any, Any, list[dict[str, Any]], list[str]]:
         agent = await self._agent_repo.get_agent(run.agent_id)

@@ -63,3 +63,17 @@ async def test_client_requires_context_manager():
     client = AgentEngineClient("proj")
     with pytest.raises(RuntimeError, match="context manager"):
         client._require_client()
+
+
+def test_quota_project_follows_the_resource_not_the_config():
+    """An agent discovered under a different GCP_PROJECT_ID still belongs to its
+    own project. Billing the configured project instead yields a 403 that reads
+    like a permissions problem rather than a misconfiguration."""
+    from app.services.gcp.agent_engine_client import project_of
+
+    assert (
+        project_of("projects/936666675765/locations/us-west1/reasoningEngines/7")
+        == "936666675765"
+    )
+    assert project_of(None) is None
+    assert project_of("not-a-resource-name") is None

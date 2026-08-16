@@ -20,6 +20,7 @@ from typing import Any
 
 import google.auth
 import httpx
+from google.auth.exceptions import DefaultCredentialsError, RefreshError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 
 from app.core.config import get_settings
@@ -65,6 +66,17 @@ def classify_http_error(status: int, body: str) -> str:
     return "AGENT_ERROR"
 
 
+def project_of(resource_name: str | None) -> str | None:
+    """Project that owns a resource, read from its name.
+
+    A resource name is authoritative about where the resource lives; the
+    configured project is only a default for calls that have no resource yet.
+    """
+    if not resource_name or "projects/" not in resource_name:
+        return None
+    return resource_name.split("projects/")[1].split("/")[0] or None
+
+
 class _TokenSource:
     """ADC access token with in-process caching.
 
@@ -79,12 +91,23 @@ class _TokenSource:
 
     async def token(self) -> str:
         async with self._lock:
-            if self._credentials is None:
-                self._credentials, self._default_project = await asyncio.to_thread(
-                    google.auth.default, scopes=_SCOPES
-                )
-            if not self._is_fresh(self._credentials):
-                await asyncio.to_thread(self._credentials.refresh, GoogleAuthRequest())
+            try:
+                if self._credentials is None:
+                    self._credentials, self._default_project = await asyncio.to_thread(
+                        google.auth.default, scopes=_SCOPES
+                    )
+                if not self._is_fresh(self._credentials):
+                    await asyncio.to_thread(self._credentials.refresh, GoogleAuthRequest())
+            except (RefreshError, DefaultCredentialsError) as exc:
+                # Expired or missing ADC used to escape as a raw exception, which
+                # surfaced as a generic 500 and failed the whole run with an
+                # opaque message. It is an auth problem, and must be reported as
+                # one so it is not mistaken for the agent misbehaving.
+                self._credentials = None
+                raise AgentEngineError(
+                    f"{exc} Run: gcloud auth application-default login",
+                    kind="AUTH_ERROR",
+                ) from exc
             return self._credentials.token
 
     async def default_project(self) -> str | None:
@@ -139,10 +162,15 @@ class AgentEngineClient:
         self._project = project
         return project
 
-    async def _headers(self) -> dict[str, str]:
+    async def _headers(self, resource_name: str | None = None) -> dict[str, str]:
+        # The billing/quota project must be the one that owns the resource. An
+        # agent discovered while GCP_PROJECT_ID pointed elsewhere still carries
+        # its own project in its resource name, and sending the configured
+        # project instead produces a 403 that reads like a permissions problem.
+        project = project_of(resource_name) or await self._project_id()
         return {
             "Authorization": f"Bearer {await _token_source.token()}",
-            "x-goog-user-project": await self._project_id(),
+            "x-goog-user-project": project,
             "Content-Type": "application/json",
         }
 
@@ -157,6 +185,10 @@ class AgentEngineClient:
         )
 
     @staticmethod
+    def project_of(resource_name: str | None) -> str | None:
+        return project_of(resource_name)
+
+    @staticmethod
     def region_of(resource_name: str) -> str:
         if "locations/" in resource_name:
             return resource_name.split("locations/")[1].split("/")[0]
@@ -167,10 +199,14 @@ class AgentEngineClient:
             raise RuntimeError("AgentEngineClient must be used as an async context manager")
         return self._client
 
-    async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+    async def _request(
+        self, method: str, url: str, *, resource_name: str | None = None, **kwargs: Any
+    ) -> httpx.Response:
         client = self._require_client()
         try:
-            response = await client.request(method, url, headers=await self._headers(), **kwargs)
+            response = await client.request(
+                method, url, headers=await self._headers(resource_name), **kwargs
+            )
         except httpx.TimeoutException as exc:
             raise AgentEngineError(f"Timeout calling {url}: {exc}", kind="TIMEOUT") from exc
         except httpx.HTTPError as exc:
@@ -184,8 +220,16 @@ class AgentEngineClient:
             )
         return response
 
-    async def _get_json(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        response = await self._request("GET", url, params=params)
+    async def _get_json(
+        self,
+        url: str,
+        params: dict[str, Any] | None = None,
+        *,
+        resource_name: str | None = None,
+    ) -> dict[str, Any]:
+        response = await self._request(
+            "GET", url, resource_name=resource_name, params=params
+        )
         return response.json() if response.content else {}
 
     # -- engines --------------------------------------------------------
@@ -205,7 +249,7 @@ class AgentEngineClient:
 
     async def get_engine(self, region: str, engine_id: str) -> dict[str, Any]:
         name = await self.resource_name(region, engine_id)
-        return await self._get_json(f"{self.base_url(region)}/{name}")
+        return await self._get_json(f"{self.base_url(region)}/{name}", resource_name=name)
 
     # -- sessions -------------------------------------------------------
 
@@ -223,7 +267,11 @@ class AgentEngineClient:
         """
         region = self.region_of(resource_name)
         url = f"{self.base_url(region)}/{resource_name}/sessions"
-        data = await self._get_json(url, {"pageSize": page_size, "orderBy": order_by})
+        data = await self._get_json(
+            url,
+            {"pageSize": page_size, "orderBy": order_by},
+            resource_name=resource_name,
+        )
         return data.get("sessions", [])
 
     async def create_session(self, resource_name: str, user_id: str) -> str:
@@ -236,6 +284,7 @@ class AgentEngineClient:
         response = await self._request(
             "POST",
             f"{self.base_url(region)}/{resource_name}/sessions",
+            resource_name=resource_name,
             json={"userId": user_id},
         )
         operation = response.json()
@@ -253,7 +302,7 @@ class AgentEngineClient:
         deadline = time.monotonic() + timeout_s
         delay = 0.5
         while time.monotonic() < deadline:
-            current = await self._get_json(f"{self.base_url(region)}/{op_name}")
+            current = await self._get_json(f"{self.base_url(region)}/{op_name}", resource_name=op_name)
             if current.get("done"):
                 if "error" in current:
                     raise AgentEngineError(f"Operation failed: {current['error']}")
@@ -266,7 +315,9 @@ class AgentEngineClient:
         region = self.region_of(resource_name)
         try:
             await self._request(
-                "DELETE", f"{self.base_url(region)}/{resource_name}/sessions/{session_id}"
+                "DELETE",
+                f"{self.base_url(region)}/{resource_name}/sessions/{session_id}",
+                resource_name=resource_name,
             )
         except AgentEngineError as exc:
             # Cleanup failure must never mask the result it was cleaning up after.
@@ -283,7 +334,7 @@ class AgentEngineClient:
         events: list[dict[str, Any]] = []
         params: dict[str, Any] = {"pageSize": 200}
         while True:
-            data = await self._get_json(url, params)
+            data = await self._get_json(url, params, resource_name=resource_name)
             events.extend(data.get("sessionEvents", []))
             token = data.get("nextPageToken")
             if not token:
@@ -316,7 +367,7 @@ class AgentEngineClient:
         chunks: list[dict[str, Any]] = []
         try:
             async with client.stream(
-                "POST", url, headers=await self._headers(), json=body
+                "POST", url, headers=await self._headers(resource_name), json=body
             ) as response:
                 if response.status_code >= 400:
                     raw = (await response.aread()).decode("utf-8", "replace")[:800]

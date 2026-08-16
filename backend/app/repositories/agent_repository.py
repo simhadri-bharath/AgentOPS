@@ -214,6 +214,32 @@ class AgentRepository:
         await self._session.flush()
         return count
 
+    async def mark_agents_outside_project(self, project_id: str | None) -> int:
+        """Deactivate agents that belong to a different GCP project.
+
+        Their resource names point somewhere the configured credentials and
+        quota project no longer address, so an evaluation against them can only
+        fail. Marked rather than deleted -- the setting may be changed back.
+        """
+        if not project_id:
+            return 0
+        result = await self._session.execute(select(Agent))
+        count = 0
+        for agent in result.scalars().all():
+            # Compare on gcp_project only. The resource name carries the project
+            # NUMBER, not the ID, so matching against it would deactivate every
+            # agent including the ones in scope.
+            owner = agent.gcp_project
+            if owner and owner != project_id and agent.status != "inactive":
+                agent.status = "inactive"
+                agent.extra_metadata = {
+                    **(agent.extra_metadata or {}),
+                    "out_of_scope_project": owner,
+                }
+                count += 1
+        await self._session.flush()
+        return count
+
     async def mark_stale_agents_in_regions(
         self,
         active_endpoint_urls: set[str],

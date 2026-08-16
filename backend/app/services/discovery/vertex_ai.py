@@ -271,6 +271,24 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
                 extra={"component": "vertex_discovery", "count": stale},
             )
 
+        # Agents discovered while GCP_PROJECT_ID pointed at a different project
+        # stay in the table after the setting changes, and there is no way to
+        # reach them any more. Mark them so they are visibly out of scope rather
+        # than sitting in the list looking evaluable.
+        orphaned = await self._repository.mark_agents_outside_project(self._project_id)
+        if orphaned:
+            logger.warning(
+                "Marked %s agent(s) inactive: they belong to a different GCP project "
+                "than the configured %s",
+                orphaned,
+                self._project_id,
+                extra={"component": "vertex_discovery"},
+            )
+            summary.errors.append(
+                f"{orphaned} agent(s) from another project were marked inactive. "
+                f"Configured project is {self._project_id}."
+            )
+
         logger.info(
             "Vertex AI sync complete: discovered=%s created=%s updated=%s unchanged=%s",
             summary.discovered,

@@ -176,3 +176,42 @@ def test_registry_has_no_metric_the_old_ui_offered_but_backend_dropped():
         "agent_trajectory_exact_match",
     ):
         assert gone not in METRIC_REGISTRY
+
+
+def test_run_with_no_successful_invocation_is_failed_not_completed():
+    """An unreachable agent is an outage, not a completed evaluation.
+
+    Reporting it as completed let the dashboard count a run where every sample
+    errored as a healthy one with empty scores.
+    """
+    from app.services.evaluation.runner import EvaluationRunner
+    from app.services.evaluation.trace_model import InvocationState
+
+    all_auth_failed = [
+        EvaluationCase(input="q", state=InvocationState.AUTH_ERROR, error="ADC expired"),
+        EvaluationCase(input="q", state=InvocationState.AUTH_ERROR, error="ADC expired"),
+    ]
+    status, message = EvaluationRunner._terminal_status(all_auth_failed)
+    assert status == "failed"
+    assert "AUTH_ERROR x2" in message
+    assert "ADC expired" in message
+
+
+def test_partial_failure_still_completes():
+    # Scored samples are real results; one bad invocation must not discard them.
+    from app.services.evaluation.runner import EvaluationRunner
+    from app.services.evaluation.trace_model import InvocationState
+
+    mixed = [
+        EvaluationCase(input="q", actual_output="a", state=InvocationState.SUCCESS),
+        EvaluationCase(input="q", state=InvocationState.AGENT_ERROR, error="boom"),
+    ]
+    assert EvaluationRunner._terminal_status(mixed) == ("completed", None)
+
+
+def test_empty_dataset_is_failed():
+    from app.services.evaluation.runner import EvaluationRunner
+
+    status, message = EvaluationRunner._terminal_status([])
+    assert status == "failed"
+    assert "no samples" in message

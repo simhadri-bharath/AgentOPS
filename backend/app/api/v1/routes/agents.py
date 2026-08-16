@@ -26,6 +26,7 @@ from app.services.evaluation.trace_health import compute_trace_health
 from app.services.gcp.agent_engine_client import (
     INVOCATION_CLASS_METHOD,
     INVOCATION_ENDPOINT,
+    AgentEngineError,
 )
 from app.services.invokers.agent_engine import AgentEngineInvoker
 
@@ -309,7 +310,18 @@ async def test_invoke_agent(
     invoker = AgentEngineInvoker(
         tool_overrides=(agent.invocation_config or {}).get("tool_overrides")
     )
-    outcome = await invoker.invoke(agent.endpoint_url, body.prompt, context=body.context)
+    try:
+        outcome = await invoker.invoke(agent.endpoint_url, body.prompt, context=body.context)
+    except AgentEngineError as exc:
+        # Report the classified state rather than a bare 500 -- expired ADC and
+        # a broken agent are different problems and used to look identical.
+        return AgentInvokeTestResponse(
+            output="",
+            latency_ms=0,
+            error=str(exc),
+            via=f"{INVOCATION_ENDPOINT}/{INVOCATION_CLASS_METHOD}",
+            state=exc.kind,
+        )
     trace = outcome.trace
 
     return AgentInvokeTestResponse(
