@@ -10,7 +10,12 @@ import { Table, THead, Th, Td, TRow } from '../components/Table'
 import * as evaluationsApi from '../api/evaluations'
 import { formatRelativeTime } from '../lib/agentMapper'
 import { frameworkLabel } from '../lib/evaluationConstants'
-import { runStatusLabel, runStatusVariant } from '../lib/evaluationMapper'
+import {
+  passRateFromAggregates,
+  passRateVariant,
+  runStatusLabel,
+  runStatusVariant,
+} from '../lib/evaluationMapper'
 
 export default function JobsPage() {
   const nav = useNavigate()
@@ -36,10 +41,25 @@ export default function JobsPage() {
   }, [load])
 
   const statusBadge = (job) => (
-    <Badge variant={runStatusVariant(job.status, job.aggregate_scores)}>
-      {runStatusLabel(job.status)}
-    </Badge>
+    <Badge variant={runStatusVariant(job.status)}>{runStatusLabel(job.status)}</Badge>
   )
+
+  // "Completed" says the run finished, not that the agent did well. Without this
+  // the only way to tell a 5/5 run from a 0/5 one was to open it.
+  const passRateCell = (job) => {
+    const rate = passRateFromAggregates(job.aggregate_scores)
+    if (rate == null) return <span style={{ color: '#9CA3AF' }}>—</span>
+    const total = job.aggregate_scores?.total_samples || 0
+    const passed = job.aggregate_scores?.total_passed || 0
+    return (
+      <div className="flex items-center gap-2">
+        <Badge variant={passRateVariant(rate)}>{rate}%</Badge>
+        <span style={{ fontSize: 11, color: '#9CA3AF' }}>
+          {passed}/{total}
+        </span>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -75,6 +95,7 @@ export default function JobsPage() {
             <THead>
               <Th>Job Name</Th>
               <Th>Status</Th>
+              <Th>Passed</Th>
               <Th>Framework</Th>
               <Th>Created</Th>
             </THead>
@@ -83,6 +104,7 @@ export default function JobsPage() {
                 <TRow key={job.id} onClick={() => nav(`/jobs/${job.id}`)}>
                   <Td className="font-medium">{job.name}</Td>
                   <Td>{statusBadge(job)}</Td>
+                  <Td>{passRateCell(job)}</Td>
                   <Td>{frameworkLabel(job.framework)}</Td>
                   <Td style={{ color: '#6B7280' }}>{formatRelativeTime(job.created_at)}</Td>
                 </TRow>

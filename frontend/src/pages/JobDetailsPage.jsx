@@ -272,7 +272,7 @@ export default function JobDetailsPage() {
   }
 
   const statusBadge = (
-    <Badge variant={runStatusVariant(job.status, job.aggregate_scores)}>
+    <Badge variant={runStatusVariant(job.status)}>
       {runStatusLabel(job.status)}
     </Badge>
   )

@@ -51,7 +51,7 @@ export default function History() {
   }, [agents])
 
   const statusBadge = (run) => (
-    <Badge variant={runStatusVariant(run.status, run.aggregate_scores)}>
+    <Badge variant={runStatusVariant(run.status)}>
       {runStatusLabel(run.status)}
     </Badge>
   )

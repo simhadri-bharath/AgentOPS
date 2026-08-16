@@ -384,7 +384,7 @@ export default function AgentDetail() {
   }
 
   const evalStatusBadge = (run) => (
-    <Badge variant={runStatusVariant(run.status, run.aggregate_scores)}>
+    <Badge variant={runStatusVariant(run.status)}>
       {runStatusLabel(run.status)}
     </Badge>
   )

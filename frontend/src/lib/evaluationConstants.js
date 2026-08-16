@@ -9,6 +9,12 @@ export const FRAMEWORKS = [
     description: 'LLM-judged metrics via Gemini on Vertex AI, scored per trace and per sub-agent',
   },
   {
+    id: 'ragas',
+    name: 'RAGAS',
+    description:
+      'RAG-focused scoring — faithfulness, context precision and recall — judged by the same Vertex Gemini model.',
+  },
+  {
     id: 'deterministic',
     name: 'Deterministic only',
     description: 'String comparison and trace-health checks. No judge calls, no cost.',
@@ -66,8 +72,9 @@ export const FALLBACK_METRIC_IDS = [
 export function normalizeFramework(id) {
   if (!id) return 'deepeval'
   const s = String(id).toLowerCase()
-  // Legacy runs stored vertex/vertex_ai/ragas before those paths existed.
-  if (s === 'vertex_ai' || s === 'vertex' || s === 'ragas') return 'deepeval'
+  // Legacy runs stored vertex/vertex_ai before that path existed. `ragas` is a
+  // real framework now, so aliasing it away labelled RAGAS runs "DeepEval".
+  if (s === 'vertex_ai' || s === 'vertex') return 'deepeval'
   return s
 }
 

@@ -4,15 +4,24 @@ import { RefreshCw, Plus, Search, Loader2 } from 'lucide-react'
 import Btn from './Btn'
 import { useAgents } from '../context/AgentsContext'
 
+// Longest-prefix wins, so more specific routes are listed before their parents.
+// Anything missing here used to fall back to "Dashboard", which left half the
+// application claiming to be a page it was not.
 const breadcrumbMap = {
   '/dashboard': 'Dashboard',
+  '/deployments': 'Deployments',
   '/agents': 'Agents',
+  '/datasets': 'Evaluation → Datasets',
   '/evaluation': 'Evaluation → New Run',
+  '/jobs': 'Evaluation → Jobs',
   '/results': 'Evaluation → Results',
-  '/history': 'Evaluation → History',
+  '/history': 'Evaluation → Compare Runs',
   '/traces': 'Observability → Traces',
   '/logs': 'Observability → Logs',
-  '/red-team': 'Testing → Red Teaming',
+  '/red-team/library': 'Security → Attack Library',
+  '/red-team/scan': 'Security → New Scan',
+  '/red-team/runs': 'Security → Scan Results',
+  '/red-team': 'Security → Red Team',
   '/onboarding': 'Setup → Onboarding',
   '/settings': 'Setup → Settings',
 }
@@ -29,7 +38,10 @@ export default function Topbar() {
       /* error in context */
     }
   }
-  const label = Object.entries(breadcrumbMap).find(([k]) => pathname.startsWith(k))?.[1] || 'Dashboard'
+  const label =
+    Object.entries(breadcrumbMap)
+      .sort((a, b) => b[0].length - a[0].length)
+      .find(([k]) => pathname.startsWith(k))?.[1] || 'AgentOps'
 
   return (
     <div

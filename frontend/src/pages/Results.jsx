@@ -144,7 +144,7 @@ export default function Results() {
         title={`Eval results · ${shortId(evaluationId)}`}
         subtitle={`${agentName} · ${run?.framework || 'vertex_ai'} · ${aggregates.total_samples ?? items.length} samples · ${formatEvalDate(run?.completed_at || run?.created_at)}`}
       >
-        <Badge variant={runStatusVariant(status, aggregates)}>{runStatusLabel(status)}</Badge>
+        <Badge variant={runStatusVariant(status)}>{runStatusLabel(status)}</Badge>
         {(status === 'failed' || status === 'queued') && (
           <Btn disabled={retrying} onClick={handleRetry}>
             {retrying ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}

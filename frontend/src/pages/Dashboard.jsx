@@ -91,46 +91,46 @@ export default function Dashboard() {
     return `${completed} completed · ${failed} failed`
   }, [runs7d, runsLoading])
 
-  // 2. Avg faithfulness (pass rate across all completed runs)
   const completedRuns = useMemo(() => runs.filter((r) => r.status === 'completed'), [runs])
 
-  const avgFaithfulness = useMemo(() => {
-    if (completedRuns.length === 0) return 0
+  // 2. Pass rate — samples that met their threshold. This is a pass rate, not a
+  // metric score, and is labelled as one: calling it "faithfulness" invented a
+  // number nothing measured.
+  const passRate = useMemo(() => {
     const totalPassed = completedRuns.reduce((acc, r) => acc + (r.aggregate_scores?.total_passed || 0), 0)
     const totalSamples = completedRuns.reduce((acc, r) => acc + (r.aggregate_scores?.total_samples || 0), 0)
-    return totalSamples > 0 ? totalPassed / totalSamples : 0
+    return totalSamples > 0 ? totalPassed / totalSamples : null
   }, [completedRuns])
 
-  const avgFaithfulnessMeta = useMemo(() => {
+  const passRateMeta = useMemo(() => {
     if (runsLoading) return 'Loading…'
-    return `Based on ${completedRuns.length} completed run${completedRuns.length !== 1 ? 's' : ''}`
-  }, [completedRuns, runsLoading])
+    if (passRate == null) return 'No completed runs yet'
+    return `Across ${completedRuns.length} completed run${completedRuns.length !== 1 ? 's' : ''}`
+  }, [completedRuns, passRate, runsLoading])
 
-  // Avg Relevancy (calculated as faithfulness * 0.95 or derived from aggregate scores)
-  const avgRelevancy = useMemo(() => {
-    if (completedRuns.length === 0) return 0
-    const values = completedRuns
-      .map((r) => r.aggregate_scores?.avg_contains_expected ?? r.aggregate_scores?.avg_exact_match ?? 0)
-    return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0
+  // Mean of the metric scores actually recorded.
+  //
+  // aggregate_scores mixes 0-1 metric averages with diagnostics under the same
+  // `avg_` prefix, and runs predating the metric registry declare metrics that
+  // no longer exist -- `response_length` (a character count) and `latency_ms`
+  // averaged in as "scores" of 7845 and 93448. Every registry metric is 0-1, so
+  // anything outside that range is not a score.
+  const avgQuality = useMemo(() => {
+    const scores = completedRuns.flatMap((r) =>
+      (r.metrics || [])
+        .map((m) => r.aggregate_scores?.[`avg_${m}`])
+        .filter((v) => typeof v === 'number' && v >= 0 && v <= 1),
+    )
+    if (scores.length === 0) return null
+    return { value: scores.reduce((a, b) => a + b, 0) / scores.length, count: scores.length }
   }, [completedRuns])
 
-  const avgRelevancyMeta = useMemo(() => {
-    if (runsLoading) return 'Loading…'
-    return `Golden answers match rate`
-  }, [runsLoading])
-
-  // Avg Latency (in seconds)
   const avgLatency = useMemo(() => {
-    const runsWithLatency = completedRuns.filter((r) => r.aggregate_scores?.avg_latency_ms != null)
-    if (runsWithLatency.length === 0) return 0
-    const sum = runsWithLatency.reduce((acc, r) => acc + r.aggregate_scores.avg_latency_ms, 0)
-    return (sum / runsWithLatency.length) / 1000
+    const withLatency = completedRuns.filter((r) => r.aggregate_scores?.avg_latency_ms != null)
+    if (withLatency.length === 0) return null
+    const sum = withLatency.reduce((acc, r) => acc + r.aggregate_scores.avg_latency_ms, 0)
+    return sum / withLatency.length / 1000
   }, [completedRuns])
-
-  const avgLatencyMeta = useMemo(() => {
-    if (runsLoading) return 'Loading…'
-    return `End-to-end execution time`
-  }, [runsLoading])
 
   // 3. Status label mapper for runs
   const getRunStatusLabel = (run) => {
@@ -174,29 +174,23 @@ export default function Dashboard() {
         }
       }
 
+      // null, not 0: a day with no runs is a gap in the line, not a zero score.
       result.push({
         day: dayLabel,
-        faithfulness: avgPassRate != null ? Number(avgPassRate.toFixed(2)) : 0,
-        relevancy: avgPassRate != null ? Number((avgPassRate * 0.95).toFixed(2)) : 0,
-        latency: avgLatencySec != null ? Number(avgLatencySec.toFixed(2)) : 0,
+        passRate: avgPassRate != null ? Number(avgPassRate.toFixed(2)) : null,
+        latency: avgLatencySec != null ? Number(avgLatencySec.toFixed(2)) : null,
+        runs: dayRuns.length,
       })
-    }
-
-    const hasAnyRealData = result.some((r) => r.faithfulness > 0 || r.latency > 0)
-    if (!hasAnyRealData) {
-      return [
-        { day: 'Mon', faithfulness: 0.75, relevancy: 0.70, latency: 1.2 },
-        { day: 'Tue', faithfulness: 0.78, relevancy: 0.72, latency: 1.5 },
-        { day: 'Wed', faithfulness: 0.80, relevancy: 0.74, latency: 1.1 },
-        { day: 'Thu', faithfulness: 0.77, relevancy: 0.71, latency: 1.4 },
-        { day: 'Fri', faithfulness: 0.83, relevancy: 0.76, latency: 1.9 },
-        { day: 'Sat', faithfulness: 0.85, relevancy: 0.78, latency: 1.6 },
-        { day: 'Sun', faithfulness: 0.84, relevancy: 0.77, latency: 1.3 },
-        { day: 'Today', faithfulness: 0.87, relevancy: 0.82, latency: 1.2 },
-      ]
     }
     return result
   }, [runs])
+
+  // A chart with no runs behind it used to render eight hardcoded points that a
+  // user could not tell from their own results.
+  const trendsHaveData = useMemo(
+    () => metricTrendsData.some((d) => d.passRate != null || d.latency != null),
+    [metricTrendsData],
+  )
 
   return (
     <div>
@@ -210,7 +204,7 @@ export default function Dashboard() {
       {/* Empty charts tell a new user nothing about where to start. */}
       <FirstRunGuide agents={agents} datasets={datasetCount} runs={runs.length} />
 
-      <div className="grid grid-cols-6 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
         <StatCard
           label="Total agents"
           value={loading ? '…' : String(agents.length)}
@@ -218,7 +212,7 @@ export default function Dashboard() {
             loading ? null : (
               <>
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1" />
-                {healthyCount} healthy · {degradedCount} other
+                {healthyCount} reachable · {degradedCount} unreachable
               </>
             )
           }
@@ -229,19 +223,25 @@ export default function Dashboard() {
           meta={runs7dMeta}
         />
         <StatCard
-          label="Avg faithfulness"
-          value={runsLoading ? '…' : avgFaithfulness.toFixed(2)}
-          meta={avgFaithfulnessMeta}
+          label="Pass rate"
+          value={runsLoading ? '…' : passRate == null ? '—' : passRate.toFixed(2)}
+          meta={passRateMeta}
         />
         <StatCard
-          label="Avg relevancy"
-          value={runsLoading ? '…' : avgRelevancy.toFixed(2)}
-          meta={avgRelevancyMeta}
+          label="Avg metric score"
+          value={runsLoading ? '…' : avgQuality == null ? '—' : avgQuality.value.toFixed(2)}
+          meta={
+            runsLoading
+              ? 'Loading…'
+              : avgQuality == null
+                ? 'No scored metrics yet'
+                : `Mean of ${avgQuality.count} recorded metric score${avgQuality.count !== 1 ? 's' : ''}`
+          }
         />
         <StatCard
           label="Avg latency"
-          value={runsLoading ? '…' : `${avgLatency.toFixed(2)}s`}
-          meta={avgLatencyMeta}
+          value={runsLoading ? '…' : avgLatency == null ? '—' : `${avgLatency.toFixed(2)}s`}
+          meta={avgLatency == null ? 'No timed runs yet' : 'End-to-end execution time'}
         />
         <StatCard
           label="API health"
@@ -306,12 +306,20 @@ export default function Dashboard() {
               </THead>
               <tbody>
                 {runs.slice(0, 4).map((r) => {
-                  const score = r.aggregate_scores?.total_samples
-                    ? (r.aggregate_scores.total_passed / r.aggregate_scores.total_samples).toFixed(2)
-                    : '—'
+                  // total_passed is absent on runs that never scored, which
+                  // divided out to a literal "NaN" on screen.
+                  const total = r.aggregate_scores?.total_samples || 0
+                  const passed = r.aggregate_scores?.total_passed
+                  const score =
+                    total > 0 && typeof passed === 'number' ? (passed / total).toFixed(2) : '—'
                   return (
                     <TRow key={r.id} onClick={() => nav(`/results/${r.id}`)}>
-                      <Td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{shortId(r.id)}</Td>
+                      <Td>
+                        <div className="font-medium">{r.name || shortId(r.id)}</div>
+                        <div style={{ fontSize: 10, color: '#9CA3AF' }}>
+                          {formatRelativeTime(r.created_at)}
+                        </div>
+                      </Td>
                       <Td>{agentNameById[String(r.agent_id)] || shortId(r.agent_id)}</Td>
                       <Td>{score}</Td>
                       <Td>{statusBadge(getRunStatusLabel(r))}</Td>
@@ -325,36 +333,54 @@ export default function Dashboard() {
       </div>
 
       <Card>
-        <CardHeader title="Metric trends (7d)">
-          <Badge variant="gray">Faithfulness</Badge>
-          <Badge variant="gray">Relevancy</Badge>
-          <Badge variant="gray">Latency</Badge>
-        </CardHeader>
-        <ResponsiveContainer width="100%" height={90}>
-          <LineChart data={metricTrendsData} margin={{ top: 4, right: 4, bottom: 4, left: 0 }}>
-            <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
-            <YAxis yAxisId="left" domain={[0, 1]} hide />
-            <YAxis yAxisId="right" orientation="right" hide />
-            <Tooltip
-              contentStyle={{ fontSize: 11, background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 6 }}
-              labelStyle={{ color: '#6B7280' }}
-            />
-            <Line yAxisId="left" type="monotone" dataKey="faithfulness" stroke="#4F46E5" strokeWidth={2} dot={false} />
-            <Line yAxisId="left" type="monotone" dataKey="relevancy" stroke="#22C55E" strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
-            <Line yAxisId="right" type="monotone" dataKey="latency" stroke="#F59E0B" strokeWidth={1.5} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
-        <div className="flex gap-4 mt-1">
-          <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-            <div className="w-4 h-0.5 bg-indigo-600 rounded" />Faithfulness
-          </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-            <div className="w-4 h-0.5 bg-green-500 rounded" style={{ borderTop: '1.5px dashed #22C55E' }} />Relevancy
-          </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-            <div className="w-4 h-0.5 bg-[#F59E0B] rounded" />Latency (s)
-          </div>
-        </div>
+        <CardHeader title="Pass rate and latency (7d)" />
+        {!trendsHaveData ? (
+          <EmptyState message="No runs completed in the last 7 days. Run an evaluation to start a trend." />
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={90}>
+              <LineChart data={metricTrendsData} margin={{ top: 4, right: 4, bottom: 4, left: 0 }}>
+                <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="left" domain={[0, 1]} hide />
+                <YAxis yAxisId="right" orientation="right" hide />
+                <Tooltip
+                  contentStyle={{ fontSize: 11, background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 6 }}
+                  labelStyle={{ color: '#6B7280' }}
+                  formatter={(v, name) =>
+                    name === 'latency' ? [`${v}s`, 'Avg latency'] : [v, 'Pass rate']
+                  }
+                />
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="passRate"
+                  stroke="#4F46E5"
+                  strokeWidth={2}
+                  connectNulls
+                  dot={{ r: 2 }}
+                />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="latency"
+                  stroke="#F59E0B"
+                  strokeWidth={1.5}
+                  connectNulls
+                  dot={{ r: 2 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            <div className="flex gap-4 mt-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                <div className="w-4 h-0.5 bg-indigo-600 rounded" />Pass rate
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                <div className="w-4 h-0.5 bg-[#F59E0B] rounded" />Avg latency (s)
+              </div>
+              <div className="text-[11px] text-gray-400">Gaps are days with no completed runs.</div>
+            </div>
+          </>
+        )}
       </Card>
     </div>
   )

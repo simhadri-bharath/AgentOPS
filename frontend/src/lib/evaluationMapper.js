@@ -28,17 +28,30 @@ export function runStatusLabel(status) {
   return status || 'Unknown'
 }
 
-export function runStatusVariant(status, aggregates = {}) {
+/**
+ * Colour for the run's *status* badge.
+ *
+ * This used to colour by pass rate, so a badge reading "Completed" could be
+ * green, amber or red on the same page with nothing to explain the difference.
+ * Status and quality are two facts; the badge states the first, `passRateVariant`
+ * the second.
+ */
+export function runStatusVariant(status) {
   const s = (status || '').toLowerCase()
   if (s === 'draft') return 'gray'
   if (s === 'failed') return 'red'
+  if (s === 'cancelled') return 'gray'
   if (s === 'running' || s === 'queued') return 'amber'
-  const total = aggregates.total_samples || 0
-  const passed = aggregates.total_passed || 0
-  if (total > 0 && passed === total) return 'green'
-  if (total > 0 && passed > 0) return 'amber'
-  if (total > 0) return 'red'
+  if (s === 'completed') return 'green'
   return 'blue'
+}
+
+/** Colour for a pass rate, using the same thresholds the runs are scored on. */
+export function passRateVariant(rate) {
+  if (rate == null) return 'gray'
+  if (rate >= 100) return 'green'
+  if (rate >= 70) return 'amber'
+  return 'red'
 }
 
 export function passRateFromAggregates(aggregates = {}) {
