@@ -263,9 +263,17 @@ class RedTeamRunner:
                 categories=categories,
                 results=result_rows,
             )
+            # A scan stopped part-way is not a completed scan. Reporting it as
+            # completed would present partial coverage as a full clean result.
+            cancelled = self._invoker.cancelled
             await self._repo.update_run(
                 run,
-                status="completed",
+                status="cancelled" if cancelled else "completed",
+                error_message=(
+                    f"Cancelled after {len(result_rows)} of {len(cases)} attack(s)."
+                    if cancelled
+                    else None
+                ),
                 passed=passed,
                 failed=failed,
                 uncertain=uncertain,
