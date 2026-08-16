@@ -121,10 +121,20 @@ correct it.
 **Environment is required and has no default.** Pick honestly — it is the gate
 that later protects production agents from destructive red-team runs.
 
+**Run test before saving.** The drawer takes a prompt and invokes the live
+deployment without writing anything, so you can confirm the agent is reachable
+and behaves as expected before it enters the registry. After saving, the drawer
+stays open so you can test again immediately.
+
+**If the proposal is wrong, fix it.** Type and capabilities are editable at
+onboarding and afterwards on the agent page under **Edit profile**. They decide
+which metrics are recommended, so an agent left as `unknown` will only ever be
+offered baseline metrics.
+
 ### 2.4 Test before you commit to a run
 
-Use **Test invoke** on the agent page. One prompt, and you get back the whole
-trace:
+Test in the onboard drawer **before** you save, or later from the agent page.
+Either way you get the whole trace back from one real prompt:
 
 ```
 state: SUCCESS · latency: 30086 ms · tokens 28447 / 1905
@@ -227,6 +237,20 @@ states           SUCCESS 5 · AGENT_ERROR 1
 **`states` is the first thing to read.** One sample here failed to invoke at all —
 that is an agent availability problem, not an answer-quality problem, and it is not
 scored.
+
+#### Run profile
+
+The panel at the top of a job shows what the run cost and how it went:
+invoked/total, passed, latency p50/p95, estimated cost, agent tokens, tool and
+LLM calls, and judge evaluations split into metric and per-sub-agent.
+
+**When any sample failed to reach the agent, that is shown first.** Clean
+averages over a partly failed run hide exactly that. `JUDGE_ERROR` is called out
+separately because it is a scoring failure, not an agent failure.
+
+Underneath is the run snapshot — judge model, invocation interface, dataset
+version and review status, metric config version — which is what makes the score
+interpretable months later.
 
 #### Sample level
 
@@ -425,7 +449,7 @@ page (partial results are kept, not discarded), and any non-running job can be
 | Deployments page empty | Wrong project or region | Check `/health` → `details.gcp_project` |
 | `AUTH_ERROR` on every sample | ADC expired | `gcloud auth application-default login` |
 | RAG metrics all unavailable | Retrieval context empty | Test invoke; if `retrieval docs: 0`, the tool response shape is unrecognised — see `tool_kinds.py` |
-| Agent type proposed as `conversational` for a known RAG agent | Retrieval happens inside the agent, not as a tool call | Set `rag` + `retrieval` manually at onboarding |
+| Agent type proposed as `conversational` for a known RAG agent | Retrieval happens inside the agent, not as a tool call | Set `rag` + `retrieval` at onboarding, or later via agent page → **Edit profile** |
 | Everything `TIMEOUT` | Agent slower than the limit | Raise `EVALUATION_TIMEOUT_SECONDS` |
 | `RATE_LIMITED` | Too much concurrency | Lower `INVOKE_CONCURRENCY` and `JUDGE_CONCURRENCY` |
 | Run stuck in `running` after a restart | Background tasks die with the process | The startup sweep fails it automatically; use **Retry** |

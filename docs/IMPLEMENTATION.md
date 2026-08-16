@@ -351,6 +351,7 @@ calls and that needs to be visible rather than discovered on an invoice.
 | GET | `/health` | DB, ADC, configured project and region |
 | GET | `/api/v1/deployments` | Live inventory + activity + inferred type (read-only) |
 | GET | `/api/v1/deployments/{engine_id}` | Full spec, class methods, recent sessions |
+| POST | `/api/v1/deployments/{engine_id}/test-invoke` | Invoke before onboarding; writes nothing |
 | POST | `/api/v1/deployments/onboard` | Create the agent record |
 | DELETE | `/api/v1/deployments/onboard/{agent_id}` | Remove it |
 | GET | `/api/v1/agents` · `/{id}` | Agent registry |
@@ -445,6 +446,12 @@ These are decisions, not omissions.
 
 ### Delivered since the first draft of this roadmap
 
+- **Test before onboarding** — testing used to require onboarding first, which
+  inverts the point of a test. `POST /deployments/{id}/test-invoke` writes nothing.
+- **Agent profile editor** — type and capabilities had no UI, while the docs
+  instructed users to set them by hand for agents whose retrieval is internal.
+- **Run profile panel** — `usage` and `run_config` were persisted and never shown.
+
 - **Dataset review** — `GET/PATCH /datasets/{id}/rows` plus a `/datasets` page.
   The golden gate was previously **unsatisfiable**: promotion was refused until
   every row had an `expected_output`, and no endpoint could read or set it.
@@ -461,7 +468,6 @@ These are decisions, not omissions.
 |---|---|---|
 
 | **Per-agent thresholds** | `{metric: {warning, critical}}` → PASS / WARNING / FAIL, replacing the single global `METRIC_PASS_THRESHOLD` | `agents.invocation_config` or a new column |
-| **Cost panel in the UI** | `usage` is already persisted per run; nothing renders it yet | `JobDetailsPage.jsx` |
 | **Vertex managed metrics** | Half-working already; the registry unblocks the trajectory family | `metric_registry.py` + a `vertex_exec.py` |
 
 ### Tier 2 — moderate
