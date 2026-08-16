@@ -1,10 +1,12 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Check, Loader2, Search } from 'lucide-react'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
 import PageHeader from '../components/PageHeader'
 import { useAgents } from '../context/AgentsContext'
+import { fetchDatasets } from '../api/datasets'
+import { fetchEvaluations } from '../api/evaluations'
 
 function OnboardStep({ num, title, desc, done, active, action }) {
   return (
@@ -41,6 +43,25 @@ export default function Onboarding() {
   const gcpOk = health?.gcp_auth === 'ok'
   const dbOk = health?.database === 'ok'
   const hasAgents = agents.length > 0
+  const [hasDatasets, setHasDatasets] = useState(false)
+  const [hasRuns, setHasRuns] = useState(false)
+
+  // Onboarding stopped at "browse your agents", which is not why anyone
+  // installs this. The last two steps are the ones that produce a result.
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      fetchDatasets({ limit: 1 }).catch(() => null),
+      fetchEvaluations({ limit: 1 }).catch(() => null),
+    ]).then(([datasets, runs]) => {
+      if (cancelled) return
+      setHasDatasets((datasets?.items || []).length > 0)
+      setHasRuns((runs?.items || []).length > 0)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleTest = async () => {
     try {
@@ -66,7 +87,7 @@ export default function Onboarding() {
     <div>
       <PageHeader
         title="Getting started"
-        subtitle="Connect your GCP project and discover your agents in 4 steps"
+        subtitle="From an empty install to your first scored evaluation, in 6 steps"
       />
 
       <div style={{ maxWidth: 560 }}>
@@ -113,6 +134,35 @@ export default function Onboarding() {
           action={
             <Btn onClick={() => nav('/agents')} style={{ fontSize: 11 }} disabled={!hasAgents}>
               View agents →
+            </Btn>
+          }
+        />
+        <OnboardStep
+          num={5}
+          title="Build an evaluation set"
+          desc="Turn the agent's own production sessions into test cases, or upload a CSV"
+          done={hasDatasets}
+          active={hasAgents && !hasDatasets}
+          action={
+            <Btn onClick={() => nav('/datasets')} style={{ fontSize: 11 }} disabled={!hasAgents}>
+              Datasets →
+            </Btn>
+          }
+        />
+        <OnboardStep
+          num={6}
+          title="Run your first evaluation"
+          desc="Score the agent against that set and read the judge's reasoning per sample"
+          done={hasRuns}
+          active={hasDatasets && !hasRuns}
+          action={
+            <Btn
+              primary={hasDatasets && !hasRuns}
+              onClick={() => nav('/evaluation')}
+              style={{ fontSize: 11 }}
+              disabled={!hasDatasets}
+            >
+              New evaluation →
             </Btn>
           }
         />
