@@ -276,7 +276,7 @@ export default function RedTeamScan() {
     })
   }
 
-  const selectedAgent = agents.find((a) => a.id === agentId)
+  const selectedAgent = selectableAgents.find((a) => a.id === agentId)
 
   // ─── Step definitions ───────────────────────────────────────────────
   const dynamicSteps = framework

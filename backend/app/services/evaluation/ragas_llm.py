@@ -97,14 +97,25 @@ def build_ragas_llm(model: str | None = None, temperature: float | None = None) 
 
 
 def build_ragas_embeddings() -> Any:
-    """Vertex embeddings, needed by RAGAS answer relevancy."""
+    """Vertex embeddings, needed by RAGAS answer relevancy.
+
+    `use_vertex=True` alone is not enough: GoogleEmbeddings still requires a
+    configured client, and without one every answer-relevancy score fails with
+    "Vertex AI embeddings require a client".
+    """
+    from google import genai
     from ragas.embeddings import GoogleEmbeddings
 
     settings = get_settings()
+    location = (settings.gcp_region or "us-central1").split(",")[0].strip()
+    client = genai.Client(
+        vertexai=True, project=settings.gcp_project_id, location=location
+    )
     return GoogleEmbeddings(
+        client=client,
         use_vertex=True,
         project_id=settings.gcp_project_id,
-        location=(settings.gcp_region or "us-central1").split(",")[0].strip(),
+        location=location,
     )
 
 
