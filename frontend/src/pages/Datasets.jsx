@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { CheckCircle2, Loader2, RefreshCw, ShieldCheck } from 'lucide-react'
+import { CheckCircle2, Loader2, RefreshCw, ShieldCheck, Upload } from 'lucide-react'
 import { Card, CardHeader } from '../components/Card'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
@@ -12,7 +12,10 @@ import {
   fetchDatasets,
   setDatasetReviewStatus,
   updateDatasetRow,
+  uploadDataset,
 } from '../api/datasets'
+import { useAgents } from '../context/AgentsContext'
+import SessionDatasetBuilder from '../components/SessionDatasetBuilder'
 
 const STATUS_VARIANT = {
   bootstrapped: 'amber',
@@ -51,6 +54,9 @@ export default function Datasets() {
   const [error, setError] = useState(null)
   const [unreviewedOnly, setUnreviewedOnly] = useState(false)
   const [drafts, setDrafts] = useState({})
+  const { selectableAgents } = useAgents()
+  const [builderAgent, setBuilderAgent] = useState('')
+  const [uploading, setUploading] = useState(false)
 
   const loadDatasets = useCallback(async () => {
     setLoading(true)
@@ -139,11 +145,77 @@ export default function Datasets() {
         title="Datasets"
         subtitle="Review captured cases before they become a regression baseline"
       >
+        <label className="inline-flex">
+          <input
+            type="file"
+            accept=".csv,.json"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              setUploading(true)
+              setError(null)
+              try {
+                await uploadDataset(file, { name: file.name })
+                await loadDatasets()
+              } catch (err) {
+                setError(err.message)
+              } finally {
+                setUploading(false)
+                e.target.value = ''
+              }
+            }}
+          />
+          <span
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-[12px] cursor-pointer"
+            style={{ borderColor: '#E5E7EB', background: '#fff' }}
+          >
+            <Upload size={13} />
+            {uploading ? 'Uploading…' : 'Upload CSV/JSON'}
+          </span>
+        </label>
         <Btn onClick={loadDatasets} disabled={loading}>
           <RefreshCw size={13} />
           Refresh
         </Btn>
       </PageHeader>
+
+      {/* Building from an agent's own sessions is the recommended path, so it
+          is offered here and not only on the agent page. */}
+      <Card className="mb-5">
+        <div className="p-4 flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-1">
+              Build from an agent's production sessions
+            </label>
+            <select
+              value={builderAgent}
+              onChange={(e) => setBuilderAgent(e.target.value)}
+              style={{ width: 280 }}
+            >
+              <option value="">Select an agent…</option>
+              {selectableAgents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {builderAgent && (
+            <SessionDatasetBuilder
+              agentId={builderAgent}
+              agentName={
+                selectableAgents.find((a) => a.id === builderAgent)?.name || 'agent'
+              }
+              onCreated={loadDatasets}
+            />
+          )}
+          <div className="text-[11px] text-gray-400 flex-1 min-w-[220px]">
+            Turns real traffic into evaluation cases, including the documents the
+            agent retrieved — no test data to write by hand.
+          </div>
+        </div>
+      </Card>
 
       {error && (
         <div className="mb-4 px-3 py-2 rounded-lg text-[13px] bg-red-50 text-red-800 border border-red-200">

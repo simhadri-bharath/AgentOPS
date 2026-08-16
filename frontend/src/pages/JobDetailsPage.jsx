@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Ban, Loader2, Play, RotateCcw, Save, Trash2, Upload } from 'lucide-react'
+import { ArrowLeft, Ban, Bot, Database, GitCompare, Loader2, Play, RotateCcw, Save, Trash2, Upload } from 'lucide-react'
 import { Card, CardHeader } from '../components/Card'
 import Badge from '../components/Badge'
 import Btn from '../components/Btn'
@@ -304,6 +304,32 @@ export default function JobDetailsPage() {
         )}
         {!isDraft && (
           <span className="text-[12px] text-gray-400">Configuration is read-only after run</span>
+        )}
+      </div>
+
+      {/* A run is about an agent and a dataset; from here you could reach
+          neither, which made a low score a dead end. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-[12px]">
+        {job.agent_id && (
+          <Btn
+            style={{ fontSize: 12 }}
+            onClick={() => nav(`/agents/${job.agent_id}`)}
+          >
+            <Bot size={12} />
+            {agents.find((a) => a.id === job.agent_id)?.name || 'Agent'}
+          </Btn>
+        )}
+        {job.dataset_id && (
+          <Btn style={{ fontSize: 12 }} onClick={() => nav('/datasets')}>
+            <Database size={12} />
+            {datasets.find((d) => d.id === job.dataset_id)?.name || 'Dataset'}
+          </Btn>
+        )}
+        {!isDraft && (
+          <Btn style={{ fontSize: 12 }} onClick={() => nav('/history')}>
+            <GitCompare size={12} />
+            Compare with another run
+          </Btn>
         )}
       </div>
 
