@@ -1,14 +1,15 @@
 import { severityColor } from '../../lib/redteamScoring'
-import React from 'react'
+import React, { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Ban, Loader2 } from 'lucide-react'
 import { Card, CardHeader } from '../../components/Card'
 import Badge from '../../components/Badge'
 import StatCard from '../../components/StatCard'
+import Btn from '../../components/Btn'
 import PageHeader from '../../components/PageHeader'
 import { Table, THead, Th, Td, TRow } from '../../components/Table'
-import { fetchRedTeamRun, fetchRedTeamResults } from '../../api/redteam'
+import { cancelRedTeamRun, fetchRedTeamRun, fetchRedTeamResults } from '../../api/redteam'
 import {
   classificationVariant,
   categoryLabel,
@@ -27,6 +28,22 @@ export default function RedTeamRunResults() {
     refetchInterval: (q) =>
       q.state.data?.status === 'running' || q.state.data?.status === 'queued' ? 3000 : false,
   })
+
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState(null)
+
+  const handleCancel = async () => {
+    setCancelling(true)
+    setCancelError(null)
+    try {
+      await cancelRedTeamRun(runId)
+      // The polling query picks up the new status on its next tick.
+    } catch (e) {
+      setCancelError(e.message)
+    } finally {
+      setCancelling(false)
+    }
+  }
 
   const { data: results, isLoading: resLoading } = useQuery({
     queryKey: ['redteam', 'results', runId],
@@ -75,6 +92,17 @@ export default function RedTeamRunResults() {
         subtitle={`Status: ${run?.status || '—'} · Progress: ${completed}/${total} · Judge: ${run?.judge_model || '—'}`}
 
       >
+        {/* A scan is a long series of agent round-trips plus judge calls. The
+            backend has supported cancelling one for a while; nothing called it. */}
+        {(run?.status === 'running' || run?.status === 'queued') && (
+          <Btn onClick={handleCancel} disabled={cancelling}>
+            {cancelling ? <Loader2 size={13} className="animate-spin" /> : <Ban size={13} />}
+            {cancelling ? 'Cancelling…' : 'Cancel scan'}
+          </Btn>
+        )}
+        {cancelError && (
+          <span className="text-[12px] text-red-700">{cancelError}</span>
+        )}
         <Link to="/red-team/scan">
           <span className="text-[12px] text-indigo-600">New scan</span>
         </Link>

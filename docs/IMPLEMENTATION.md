@@ -186,7 +186,8 @@ same reason.
 
 ### 5.2 The registry
 
-23 metrics, each declaring `executor`, `requires`, `level`, `supports_span`,
+28 metrics (23 DeepEval/deterministic/trace-health plus 5 RAGAS), each
+declaring `executor`, `requires`, `level`, `supports_span`,
 `requires_reference`, and `cost`. Served to the frontend at
 `GET /api/v1/evaluations/meta/metrics` so there is one definition, not two.
 
@@ -660,7 +661,7 @@ against the Attack Library form. Both match.
 
 ## 17. Testing
 
-81 tests, `backend/tests/`. There were none before this work (`c547d76 "removed
+83 tests, `backend/tests/`. There were none before this work (`c547d76 "removed
 test files"`).
 
 | File | Covers |

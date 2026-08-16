@@ -25,6 +25,10 @@ export function fetchRedTeamRun(runId) {
   return api.get(`/api/v1/redteam/runs/${runId}`)
 }
 
+export function cancelRedTeamRun(runId) {
+  return api.post(`/api/v1/redteam/runs/${runId}/cancel`)
+}
+
 export function fetchRedTeamResults(runId, params = {}) {
   const qs = new URLSearchParams()
   if (params.classification) qs.set('classification', params.classification)

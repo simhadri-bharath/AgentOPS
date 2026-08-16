@@ -178,7 +178,9 @@ it costs 50.
 
 ### 2.5 Build a dataset from production traffic
 
-On the agent page, **Build dataset from sessions**.
+From **Datasets**, pick an agent under *Build from an agent's production
+sessions*. The same action is on the agent page, and **Upload CSV/JSON** next to
+it takes a dataset you already have.
 
 It walks recent sessions and extracts one case per turn:
 
@@ -298,7 +300,9 @@ prompt, not the formatter.
 #### Controls on a run
 
 A running job can be **cancelled** — it keeps what it completed. Any
-non-running job can be **deleted** with its results. On **History**,
+non-running job can be **deleted** with its results. The job page also links
+back to the agent and dataset that produced the scores, and across to the
+comparison view. On **History**,
 **Compare runs** diffs two runs metric by metric, per sub-agent and per sample,
 and warns when the harness moved between them.
 
@@ -493,8 +497,9 @@ Every attack is a full agent round-trip plus judge calls. Against a 40-second
 retrieval agent, a broad scan takes a long time. Two things follow:
 
 - Attacks run concurrently, tuned by `REDTEAM_CONCURRENCY`.
-- **A running scan can be cancelled.** It stops, keeps the findings it already
-  produced, and reports `cancelled` with how far it got — for example
+- **A running scan can be cancelled** with *Cancel scan* on the scan results
+  page. It stops, keeps the findings it already produced, and reports
+  `cancelled` with how far it got — for example
   *"Cancelled after 1 of 5 attack(s)"*. A stopped scan is never reported as
   completed, because partial coverage must not read as a clean result.
 
