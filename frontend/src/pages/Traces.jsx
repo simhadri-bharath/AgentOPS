@@ -399,7 +399,12 @@ export default function Traces({ agentFilter } = {}) {
             {loading ? (
               <div className="text-xs text-gray-400 p-6 text-center">
                 <div className="inline-block w-4 h-4 border-2 border-gray-200 border-t-indigo-500 rounded-full animate-spin mb-2" />
-                <div>Loading traces…</div>
+                <div>Querying Cloud Trace…</div>
+                {/* A cold query takes ~15s; an unexplained spinner that long
+                    reads as a hang. Subsequent loads are served from cache. */}
+                <div className="mt-1" style={{ color: '#9CA3AF' }}>
+                  The first query of a time window can take around 15 seconds.
+                </div>
               </div>
             ) : traces.length === 0 ? (
               <div className="text-xs text-gray-400 p-6 text-center">

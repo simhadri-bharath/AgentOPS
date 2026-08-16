@@ -25,6 +25,10 @@ const STATUS_VARIANT = {
   upload: 'gray',
 }
 
+/** Raw enum values were rendered straight to screen: "human_reviewed". */
+const humanize = (s) =>
+  !s ? '—' : String(s).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
+
 const CATEGORIES = [
   'happy_path',
   'edge_case',
@@ -251,18 +255,20 @@ export default function Datasets() {
                     <div style={{ fontSize: 10, color: '#9CA3AF' }}>{d.description}</div>
                   </Td>
                   <Td>
-                    <Badge variant={STATUS_VARIANT[d.source] || 'gray'}>{d.source}</Badge>
+                    <Badge variant={STATUS_VARIANT[d.source] || 'gray'}>
+                      {humanize(d.source)}
+                    </Badge>
                   </Td>
                   <Td>
                     <Badge variant={STATUS_VARIANT[d.review_status] || 'gray'}>
-                      {d.review_status}
+                      {humanize(d.review_status)}
                     </Badge>
                   </Td>
                   <Td>{d.row_count}</Td>
                   <Td>v{d.version}</Td>
                   <Td style={{ fontSize: 11, color: '#6B7280' }}>
                     {Object.entries(d.category_distribution || {})
-                      .map(([k, v]) => `${k} ${v}`)
+                      .map(([k, v]) => `${humanize(k)} ${v}`)
                       .join(' · ') || '—'}
                   </Td>
                   <Td>
@@ -287,7 +293,7 @@ export default function Datasets() {
               valueStyle={{ color: rows.unreviewed ? '#F59E0B' : '#10B981' }}
             />
             <StatCard label="Version" value={`v${rows.version}`} />
-            <StatCard label="Status" value={rows.review_status} />
+            <StatCard label="Status" value={humanize(rows.review_status)} />
           </div>
 
           <Card>
