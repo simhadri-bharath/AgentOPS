@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_session
 from app.repositories.agent_repository import AgentRepository
 from app.repositories.redteam_repository import RedTeamRepository
+from app.services.redteam import deepteam_catalog
+from app.services.redteam.deepteam_catalog import DeepTeamUnavailable
 from app.schemas.redteam import (
     DEFAULT_JUDGE_MODELS,
     SUPPORTED_CATEGORIES,
@@ -50,14 +52,40 @@ async def create_redteam_run(
 
     if scan_mode == "dynamic":
         # ---------- Dynamic mode (DeepTeam) ----------
-        if not body.vulnerabilities:
-            raise HTTPException(status_code=400, detail="Dynamic mode requires at least one vulnerability.")
-        if not body.attacks:
-            raise HTTPException(status_code=400, detail="Dynamic mode requires at least one attack strategy.")
+        # A framework preset supplies its own vulnerabilities and attacks, so
+        # it is an alternative to selecting them, not an addition.
+        if body.framework:
+            try:
+                deepteam_catalog.resolve_framework(body.framework)
+            except (ValueError, DeepTeamUnavailable) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        else:
+            if not body.vulnerabilities:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Pick a framework, or at least one vulnerability.",
+                )
+            if not body.attacks:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Pick a framework, or at least one attack strategy.",
+                )
+            # Fail on an unknown name here rather than silently running a
+            # smaller scan than the user asked for.
+            try:
+                for v in body.vulnerabilities:
+                    deepteam_catalog.resolve_vulnerability(
+                        v.get("name") or v.get("id"), v.get("types") or []
+                    )
+                for a in body.attacks:
+                    deepteam_catalog.resolve_attack(a.get("name") or a.get("id"))
+            except (ValueError, DeepTeamUnavailable) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         config = {
             "scan_mode": "dynamic",
-            "target_purpose": body.target_purpose or f"A {agent.name} assistant.",
+            "framework": body.framework,
+            "target_purpose": body.target_purpose or agent.purpose or f"A {agent.name} assistant.",
             "target_system_prompt": body.target_system_prompt or "You are a helpful AI assistant.",
             "vulnerabilities": body.vulnerabilities,
             "attacks": body.attacks,
@@ -66,7 +94,11 @@ async def create_redteam_run(
         repo = RedTeamRepository(session)
         run = await repo.create_run(
             agent_id=body.agent_id,
-            categories=[v.get("name") or v.get("id") for v in body.vulnerabilities],
+            categories=(
+                [body.framework]
+                if body.framework
+                else [v.get("name") or v.get("id") for v in body.vulnerabilities]
+            ),
             judge_model=body.judge_model,
             config=config,
             total_tests=0,
@@ -299,26 +331,54 @@ async def list_judge_models() -> dict:
 
 @router.get("/deepteam/vulnerabilities")
 async def list_deepteam_vulnerabilities() -> dict:
-    from app.services.redteam.deepteam_service import VULNERABILITY_CATALOG
+    """Every vulnerability the installed DeepTeam supports.
 
-    # Group by category for the frontend
+    Derived from the package, not a hand-written list: the previous literal
+    exposed 21 of 37 and omitted every agentic vulnerability.
+    """
+    try:
+        specs = deepteam_catalog.vulnerabilities()
+    except DeepTeamUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    items = [v.to_dict() for v in specs]
     grouped: dict[str, list] = {}
-    for v in VULNERABILITY_CATALOG:
-        cat = v["category"]
-        if cat not in grouped:
-            grouped[cat] = []
-        grouped[cat].append(v)
-    return {"vulnerabilities": VULNERABILITY_CATALOG, "grouped": grouped}
+    for item in items:
+        grouped.setdefault(item["category"], []).append(item)
+    return {
+        "vulnerabilities": items,
+        "grouped": grouped,
+        "total": len(items),
+        "deepteam_version": deepteam_catalog.installed_version(),
+    }
 
 
 @router.get("/deepteam/attacks")
 async def list_deepteam_attacks() -> dict:
-    from app.services.redteam.deepteam_service import ATTACK_CATALOG
+    try:
+        specs = deepteam_catalog.attacks()
+    except DeepTeamUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    single_turn = [a for a in ATTACK_CATALOG if a["type"] == "single_turn"]
-    multi_turn = [a for a in ATTACK_CATALOG if a["type"] == "multi_turn"]
+    items = [a.to_dict() for a in specs]
     return {
-        "attacks": ATTACK_CATALOG,
-        "single_turn": single_turn,
-        "multi_turn": multi_turn,
+        "attacks": items,
+        "single_turn": [a for a in items if a["kind"] == "single_turn"],
+        "multi_turn": [a for a in items if a["kind"] == "multi_turn"],
+        "total": len(items),
     }
+
+
+@router.get("/deepteam/frameworks")
+async def list_deepteam_frameworks() -> dict:
+    """Standards presets (OWASP, NIST, MITRE, EU AI Act...).
+
+    Picking one is the shortcut most users want: DeepTeam maps the standard to
+    its own vulnerabilities and attacks, instead of the user assembling 37
+    checkboxes by hand.
+    """
+    try:
+        specs = deepteam_catalog.frameworks()
+    except DeepTeamUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"frameworks": [f.to_dict() for f in specs], "total": len(specs)}

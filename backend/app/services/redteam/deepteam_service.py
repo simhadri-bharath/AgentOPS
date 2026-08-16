@@ -8,12 +8,15 @@ import re
 import uuid
 from typing import Any
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.repositories.agent_repository import AgentRepository
 from app.repositories.redteam_repository import RedTeamRepository
 from app.services.evaluation.agent_invoker import AgentInvoker
 
 logger = get_logger(__name__)
+
+from app.services.redteam import deepteam_catalog
 
 # ---------------------------------------------------------------------------
 # LLM-based vulnerability scoring prompt
@@ -356,47 +359,35 @@ ATTACK_CATALOG: list[dict[str, Any]] = [
 
 
 def _resolve_vulnerabilities(selected: list[dict[str, Any]]) -> list:
-    """Map UI vulnerability selections to instantiated DeepTeam classes."""
-    import deepteam.vulnerabilities as vulns_module
+    """Map UI vulnerability selections to instantiated DeepTeam classes.
 
+    Unknown names raise rather than being skipped with a warning: silently
+    dropping one shrinks the scan while still reporting success, so a typo
+    looks like a clean result.
+    """
     instantiated = []
     for v in selected:
         name = v.get("name") or v.get("id")
         sub_types = v.get("types") or v.get("sub_types") or []
-        cls = getattr(vulns_module, name, None)
-        if cls is None:
-            logger.warning("Unknown vulnerability class: %s — skipping", name)
-            continue
-        try:
-            if sub_types:
-                instantiated.append(cls(types=sub_types))
-            else:
-                instantiated.append(cls())
-        except Exception as exc:
-            logger.warning("Failed to instantiate vulnerability %s: %s", name, exc)
+        instantiated.append(deepteam_catalog.resolve_vulnerability(name, sub_types))
     return instantiated
 
 
 def _resolve_attacks(selected: list[dict[str, Any]]) -> list:
     """Map UI attack selections to instantiated DeepTeam attack classes."""
-    import deepteam.attacks.single_turn as st
-    import deepteam.attacks.multi_turn as mt
-
     instantiated = []
     for a in selected:
         name = a.get("name") or a.get("id")
-        weight = a.get("weight", 1)
-        cls = getattr(st, name, None) or getattr(mt, name, None)
-        if cls is None:
-            logger.warning("Unknown attack class: %s — skipping", name)
-            continue
+        weight = a.get("weight")
         try:
-            instantiated.append(cls(weight=weight))
-        except Exception:
-            try:
-                instantiated.append(cls())
-            except Exception as exc:
-                logger.warning("Failed to instantiate attack %s: %s", name, exc)
+            instantiated.append(
+                deepteam_catalog.resolve_attack(name, weight=weight)
+                if weight
+                else deepteam_catalog.resolve_attack(name)
+            )
+        except ValueError:
+            # Not every attack accepts a weight; retry without before failing.
+            instantiated.append(deepteam_catalog.resolve_attack(name))
     return instantiated
 
 
@@ -479,17 +470,37 @@ class DeepTeamService:
             # "This event loop is already running".
             from deepteam import red_team
 
+            # A standards preset (OWASP Top 10, NIST, MITRE...) maps itself to
+            # the right vulnerabilities and attacks, so the caller picks one
+            # name instead of assembling 37 checkboxes.
+            framework_name = (config or {}).get("framework")
+            framework = (
+                deepteam_catalog.resolve_framework(framework_name)
+                if framework_name
+                else None
+            )
+
+            settings = get_settings()
+
             def _run_red_team():
-                return red_team(
+                kwargs: dict[str, Any] = dict(
                     model_callback=model_callback,
-                    vulnerabilities=resolved_vulns,
-                    attacks=resolved_attacks,
                     target_purpose=target_purpose,
                     simulator_model=judge_llm,
                     evaluation_model=judge_llm,
-                    async_mode=False,
+                    # Scans used to run strictly serially. Each attack is an
+                    # agent round-trip plus judge calls, so a serial scan of a
+                    # 40s-per-turn agent takes hours.
+                    async_mode=True,
+                    max_concurrent=settings.redteam_concurrency,
                     ignore_errors=True,
                 )
+                if framework is not None:
+                    kwargs["framework"] = framework
+                else:
+                    kwargs["vulnerabilities"] = resolved_vulns
+                    kwargs["attacks"] = resolved_attacks
+                return red_team(**kwargs)
 
             risk_assessment = await asyncio.to_thread(_run_red_team)
 

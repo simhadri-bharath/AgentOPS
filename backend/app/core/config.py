@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     judge_model: str = Field(default="gemini-2.5-flash", alias="JUDGE_MODEL")
     judge_temperature: float = Field(default=0.0, alias="JUDGE_TEMPERATURE")
     judge_concurrency: int = Field(default=6, alias="JUDGE_CONCURRENCY")
+    # Red-team scans were serial: each attack is an agent round-trip plus judge
+    # calls, so a scan against a 40s-per-turn agent took hours.
+    redteam_concurrency: int = Field(default=5, alias="REDTEAM_CONCURRENCY")
     # A sample "passes" when its mean judged score clears this. The old rule
     # counted any non-empty response as a pass.
     metric_pass_threshold: float = Field(default=0.7, alias="METRIC_PASS_THRESHOLD")

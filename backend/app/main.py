@@ -2,6 +2,7 @@
 
 import time
 import uuid
+import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -53,31 +54,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             auth.project_id,
             extra={"component": "startup"},
         )
-        try:
-            factory = get_session_factory()
-            async with factory() as session:
-                summary = await VertexAIDiscoveryService(session).sync_to_database()
-                await session.commit()
-            logger.info(
-                "Vertex AI discovery sync on startup: discovered=%s created=%s updated=%s unchanged=%s",
-                summary.discovered,
-                summary.created,
-                summary.updated,
-                summary.unchanged,
-                extra={"component": "startup"},
-            )
-            if summary.errors:
-                logger.warning(
-                    "Vertex AI discovery sync errors: %s",
-                    summary.errors,
+        # Discovery scans ten regions and can take tens of seconds. Awaiting it
+        # inside lifespan means the app refuses connections until GCP answers,
+        # so a slow or unreachable region looks like a dead server. Run it in
+        # the background and start serving immediately.
+        async def _startup_discovery() -> None:
+            try:
+                factory = get_session_factory()
+                async with factory() as session:
+                    summary = await VertexAIDiscoveryService(session).sync_to_database()
+                    await session.commit()
+                logger.info(
+                    "Vertex AI discovery sync on startup: discovered=%s created=%s updated=%s unchanged=%s",
+                    summary.discovered,
+                    summary.created,
+                    summary.updated,
+                    summary.unchanged,
                     extra={"component": "startup"},
                 )
-        except Exception as exc:
-            logger.warning(
-                "Vertex AI discovery sync failed at startup: %s",
-                exc,
-                extra={"component": "startup"},
-            )
+                if summary.errors:
+                    logger.warning(
+                        "Vertex AI discovery sync errors: %s",
+                        summary.errors,
+                        extra={"component": "startup"},
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Vertex AI discovery sync failed at startup: %s",
+                    exc,
+                    extra={"component": "startup"},
+                )
+
+        asyncio.create_task(_startup_discovery())
+
     else:
         logger.warning(
             "GCP ADC not available at startup: %s",

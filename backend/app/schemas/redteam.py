@@ -53,6 +53,10 @@ class RedTeamRunCreate(ORMBase):
             "or custom test case UUID). Omit or null to run all prompts in each category."
         ),
     )
+    # A standards preset (OWASPTop10, NIST, MITRE, EUAIAct...). When set,
+    # DeepTeam derives the vulnerabilities and attacks itself and the explicit
+    # lists below are ignored.
+    framework: str | None = None
     # Dynamic mode (DeepTeam) fields
     target_purpose: str | None = None
     target_system_prompt: str | None = None
