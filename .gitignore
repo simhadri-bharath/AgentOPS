@@ -1,0 +1,4 @@
+
+# DeepEval writes telemetry here on every judged run
+backend/.deepeval/
+.deepeval/
