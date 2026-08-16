@@ -8,6 +8,7 @@ import AgentIcon from '../components/AgentIcon'
 import Btn from '../components/Btn'
 import TabBar from '../components/TabBar'
 import KVRow from '../components/KVRow'
+import AgentProfileEditor from '../components/AgentProfileEditor'
 import MiniBar from '../components/MiniBar'
 import EmptyState from '../components/EmptyState'
 import SessionDatasetBuilder from '../components/SessionDatasetBuilder'
@@ -27,7 +28,7 @@ import {
 export default function AgentDetail() {
   const { id } = useParams()
   const nav = useNavigate()
-  const { getAgent, agents } = useAgents()
+  const { getAgent, agents, refreshAgents } = useAgents()
   const [agent, setAgent] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -285,10 +286,7 @@ export default function AgentDetail() {
             <KVRow label="Region" value={agent.region} />
             <KVRow label="Project" value={agent.project} />
             <KVRow label="Source" value={agent.source} />
-            <KVRow label="Agent type" value={agent.agentType} />
-            <KVRow label="Capabilities" value={agent.capabilities.join(', ') || '—'} />
-            <KVRow label="Environment" value={agent.environment} />
-            <KVRow label="Purpose" value={agent.purpose || '—'} />
+            <AgentProfileEditor agent={agent} onSaved={refreshAgents} />
             <KVRow label="Tools" value={agentTools} isLast />
           </Card>
 

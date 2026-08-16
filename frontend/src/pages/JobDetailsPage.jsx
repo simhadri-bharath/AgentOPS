@@ -6,6 +6,7 @@ import Badge from '../components/Badge'
 import Btn from '../components/Btn'
 import EmptyState from '../components/EmptyState'
 import PageHeader from '../components/PageHeader'
+import RunUsagePanel from '../components/RunUsagePanel'
 import { Table, THead, Th, Td, TRow } from '../components/Table'
 import { useAgents } from '../context/AgentsContext'
 import * as datasetsApi from '../api/datasets'
@@ -287,6 +288,8 @@ export default function JobDetailsPage() {
           Jobs
         </Btn>
       </PageHeader>
+
+      <RunUsagePanel job={job} />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         {statusBadge}

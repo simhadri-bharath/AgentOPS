@@ -13,6 +13,11 @@ export function fetchDeployment(engineId, region) {
   return api.get(`/api/v1/deployments/${engineId}${qs}`)
 }
 
+export function testInvokeDeployment(engineId, prompt, region) {
+  const qs = region ? `?region=${encodeURIComponent(region)}` : ''
+  return api.post(`/api/v1/deployments/${engineId}/test-invoke${qs}`, { prompt })
+}
+
 export function onboardDeployment(body) {
   return api.post('/api/v1/deployments/onboard', body)
 }

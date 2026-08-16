@@ -7,14 +7,14 @@ import EmptyState from '../components/EmptyState'
 import PageHeader from '../components/PageHeader'
 import StatCard from '../components/StatCard'
 import { Table, THead, Th, Td, TRow } from '../components/Table'
-import { CheckCircle2, Loader2, RefreshCw, Rocket, X } from 'lucide-react'
+import { CheckCircle2, Loader2, Play, RefreshCw, Rocket, X } from 'lucide-react'
 import {
   AGENT_TYPES,
   CAPABILITIES,
   ENVIRONMENTS,
   fetchDeployments,
   onboardDeployment,
-  testInvokeAgent,
+  testInvokeDeployment,
 } from '../api/deployments'
 import { useAgents } from '../context/AgentsContext'
 
@@ -45,6 +45,8 @@ function OnboardDrawer({ deployment, onClose, onDone }) {
   const [error, setError] = useState(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
+  const [onboarded, setOnboarded] = useState(Boolean(deployment.onboarded_agent_id))
+  const [testPrompt, setTestPrompt] = useState('')
 
   const toggleCap = (cap) =>
     setCapabilities((prev) =>
@@ -67,7 +69,8 @@ function OnboardDrawer({ deployment, onClose, onDone }) {
         capabilities,
         purpose: purpose || null,
       })
-      onDone(agent)
+      setOnboarded(true)
+      onDone(agent, { keepOpen: true })
     } catch (e) {
       setError(e.message)
     } finally {
@@ -75,16 +78,20 @@ function OnboardDrawer({ deployment, onClose, onDone }) {
     }
   }
 
+  // Testing must not require onboarding first: the point of the test is to
+  // decide whether to onboard.
   const runTest = async () => {
-    if (!deployment.onboarded_agent_id) {
-      setError('Onboard first, then Test — the invoker needs a saved agent.')
-      return
-    }
     setTesting(true)
     setError(null)
     setTestResult(null)
     try {
-      setTestResult(await testInvokeAgent(deployment.onboarded_agent_id, 'Reply with: ok'))
+      setTestResult(
+        await testInvokeDeployment(
+          deployment.engine_id,
+          testPrompt.trim() || 'Reply with: ok',
+          deployment.region,
+        ),
+      )
     } catch (e) {
       setError(e.message)
     } finally {
@@ -182,25 +189,78 @@ function OnboardDrawer({ deployment, onClose, onDone }) {
           </div>
         )}
 
+        <div className="border-t pt-3 mb-3" style={{ borderColor: '#E5E7EB' }}>
+          <label className="block text-[12px] font-medium text-gray-700 mb-1">
+            Test invoke
+          </label>
+          <div className="text-[11px] text-gray-400 mb-1.5">
+            Runs one real prompt against the live agent. Costs one invocation and
+            takes ~30-45s for a retrieval agent. No data is saved.
+          </div>
+          <input
+            className="w-full mb-1.5 text-[12px]"
+            placeholder="Reply with: ok"
+            value={testPrompt}
+            onChange={(e) => setTestPrompt(e.target.value)}
+          />
+          <Btn onClick={runTest} disabled={testing}>
+            {testing ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+            {testing ? 'Invoking…' : 'Run test'}
+          </Btn>
+        </div>
+
         {testResult && (
-          <div className="mb-3 px-3 py-2 rounded-lg text-[12px] bg-gray-50 border border-gray-200">
-            <div className="text-gray-500 mb-1">
-              {testResult.latency_ms} ms · via {testResult.via}
+          <div
+            className="mb-3 px-3 py-2 rounded-lg text-[12px] border"
+            style={
+              testResult.state === 'SUCCESS'
+                ? { background: '#F0FDF4', borderColor: '#BBF7D0' }
+                : { background: '#FEF2F2', borderColor: '#FECACA' }
+            }
+          >
+            <div className="font-medium mb-1">
+              {testResult.state} · {testResult.latency_ms} ms · {testResult.tokens_in}/
+              {testResult.tokens_out} tokens
+            </div>
+            {testResult.agent_path?.length > 0 && (
+              <div className="text-gray-600 mb-0.5">
+                path: {testResult.agent_path.join(' → ')}
+              </div>
+            )}
+            {testResult.trajectory?.length > 0 && (
+              <div className="text-gray-600 mb-0.5">
+                tools: {testResult.trajectory.map((t) => t.name).join(', ')}
+              </div>
+            )}
+            <div className="text-gray-600 mb-1">
+              retrieved: {testResult.retrieval_context?.length || 0} document(s)
+              {(testResult.retrieval_context?.length || 0) === 0 && (
+                // Zero here is the signal that RAG metrics will be unavailable.
+                <span className="text-amber-700">
+                  {' '}
+                  — RAG metrics will report unavailable
+                </span>
+              )}
             </div>
             <div className="text-gray-800 whitespace-pre-wrap">
-              {(testResult.output || testResult.error || '').slice(0, 400)}
+              {(testResult.output || testResult.error || '').slice(0, 500)}
             </div>
           </div>
         )}
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <Btn primary onClick={save} disabled={saving}>
             {saving ? <Loader2 size={13} className="animate-spin" /> : <Rocket size={13} />}
-            {saving ? 'Saving…' : deployment.onboarded_agent_id ? 'Update' : 'Onboard'}
+            {saving ? 'Saving…' : onboarded ? 'Update agent' : 'Onboard'}
           </Btn>
-          <Btn onClick={runTest} disabled={testing || !deployment.onboarded_agent_id}>
-            {testing ? <Loader2 size={13} className="animate-spin" /> : null}
-            {testing ? 'Invoking…' : 'Test invoke'}
+          {onboarded && (
+            <span className="flex items-center gap-1 text-[11px] text-green-700">
+              <CheckCircle2 size={13} />
+              saved
+            </span>
+          )}
+          <Btn onClick={onClose} style={{ marginLeft: 'auto' }}>
+            Close
           </Btn>
         </div>
       </div>
@@ -361,8 +421,10 @@ export default function Deployments() {
         <OnboardDrawer
           deployment={drawer}
           onClose={() => setDrawer(null)}
-          onDone={async () => {
-            setDrawer(null)
+          onDone={async (agent, opts) => {
+            // Stay open after onboarding so the user can test the agent they
+            // just saved without hunting for it in another page.
+            if (!opts?.keepOpen) setDrawer(null)
             await load(true)
             refreshAgents()
           }}

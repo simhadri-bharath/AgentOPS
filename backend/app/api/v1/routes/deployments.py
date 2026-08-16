@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.core.config import get_settings
 from app.dependencies import get_agent_repository
 from app.repositories.agent_repository import AgentRepository
-from app.schemas.agent import AgentCreate, AgentRead
+from app.schemas.agent import (
+    AgentCreate,
+    AgentInvokeTestRequest,
+    AgentInvokeTestResponse,
+    AgentRead,
+)
 from app.schemas.deployment import (
     DeploymentDetail,
     DeploymentListResponse,
@@ -23,7 +29,14 @@ from app.services.discovery.deployments import (
     resolve_regions,
 )
 from app.services.discovery.vertex_ai import agent_uuid_for_resource, slugify
-from app.services.gcp.agent_engine_client import AgentEngineClient, AgentEngineError
+from app.services.evaluation.trace_health import compute_trace_health
+from app.services.gcp.agent_engine_client import (
+    INVOCATION_CLASS_METHOD,
+    INVOCATION_ENDPOINT,
+    AgentEngineClient,
+    AgentEngineError,
+)
+from app.services.invokers.agent_engine import AgentEngineInvoker
 
 router = APIRouter(prefix="/deployments", tags=["deployments"])
 
@@ -97,6 +110,58 @@ async def get_deployment(
             }
             for s in sessions
         ],
+    )
+
+
+@router.post("/{engine_id}/test-invoke", response_model=AgentInvokeTestResponse)
+async def test_invoke_deployment(
+    engine_id: str,
+    body: AgentInvokeTestRequest,
+    region: str | None = Query(default=None),
+) -> AgentInvokeTestResponse:
+    """Invoke a deployment before onboarding it.
+
+    Onboarding used to be a prerequisite for testing, which is backwards: the
+    point of a test is to decide whether to onboard. Nothing is written here.
+    """
+    deployments = await list_deployments()
+    match = next(
+        (
+            d
+            for d in deployments
+            if d.engine_id == engine_id and (not region or d.region == region)
+        ),
+        None,
+    )
+    if match is None:
+        raise HTTPException(status_code=404, detail=f"Deployment {engine_id} not found")
+
+    invoker = AgentEngineInvoker()
+    try:
+        outcome = await invoker.invoke(match.resource_name, body.prompt, context=body.context)
+    except AgentEngineError as exc:
+        return AgentInvokeTestResponse(
+            output="",
+            latency_ms=0,
+            error=str(exc),
+            via=f"{INVOCATION_ENDPOINT}/{INVOCATION_CLASS_METHOD}",
+            state=exc.kind,
+        )
+
+    trace = outcome.trace
+    return AgentInvokeTestResponse(
+        output=outcome.output,
+        latency_ms=outcome.latency_ms,
+        error=outcome.error,
+        via=f"{INVOCATION_ENDPOINT}/{INVOCATION_CLASS_METHOD}",
+        state=outcome.state.value,
+        agent_path=list(trace.agent_path) if trace else [],
+        trajectory=[t.to_dict() for t in trace.trajectory] if trace else [],
+        retrieval_context=[asdict(d) for d in trace.retrieval_context] if trace else [],
+        spans=[s.to_dict() for s in trace.spans] if trace else [],
+        trace_health=compute_trace_health(trace) if trace else {},
+        tokens_in=trace.tokens_in if trace else 0,
+        tokens_out=trace.tokens_out if trace else 0,
     )
 
 
