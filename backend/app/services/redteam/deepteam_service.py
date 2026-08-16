@@ -463,10 +463,12 @@ class DeepTeamService:
                 )
 
         try:
-            # Build the judge LLM (same VertexGeminiJudge used by Custom Mode)
-            judge_model_name = config.get("judge_model", "gemini-2.5-pro")
-            from app.services.redteam.vertex_gemini_llm import VertexGeminiJudge
-            judge_llm = VertexGeminiJudge(model=judge_model_name, temperature=0.0)
+            # One shared judge across evaluation and both red-team modes.
+            # Three modules previously hardcoded three different defaults.
+            from app.services.evaluation.judge import get_judge
+
+            judge_model_name = config.get("judge_model") or get_settings().judge_model
+            judge_llm = get_judge(model=judge_model_name, temperature=0.0)
 
             # Execute DeepTeam in a background thread to avoid blocking the
             # async event loop.  async_mode=False is required because we are

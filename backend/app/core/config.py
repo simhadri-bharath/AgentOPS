@@ -52,11 +52,9 @@ class Settings(BaseSettings):
     # counted any non-empty response as a pass.
     metric_pass_threshold: float = Field(default=0.7, alias="METRIC_PASS_THRESHOLD")
 
-    redteam_default_judge: str = Field(
-        default="gemini-1.5-pro",
-        alias="REDTEAM_DEFAULT_JUDGE",
-    )
-    redteam_use_llm_judge: bool = Field(default=True, alias="REDTEAM_USE_LLM_JUDGE")
+    # REDTEAM_DEFAULT_JUDGE / REDTEAM_USE_LLM_JUDGE removed: nothing read
+    # them. JUDGE_MODEL is the single judge setting, and use_llm_judge is a
+    # per-run choice on the scan request.
 
     cors_origins: str = Field(default="", alias="CORS_ORIGINS")
     # Runs left in `running` longer than this after a restart cannot still be

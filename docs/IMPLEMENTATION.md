@@ -428,8 +428,16 @@ were called. Previously custom mode fabricated `redteam-<hex>` -- which Cloud
 Trace could never resolve -- and dynamic mode wrote `trace_id=None`, leaving the
 observability column decorative.
 
-`POST /redteam/runs/{id}/cancel` stops a scan. There was no way to stop one
-short of restarting the process.
+`POST /redteam/runs/{id}/cancel` stops a scan, and a stopped scan reports
+`cancelled` with how far it got rather than `completed` -- partial coverage
+must not read as a clean result. There was previously no way to stop one short
+of restarting the process.
+
+One judge now serves evaluation and both scan modes. The red-team path used a
+hand-rolled judge that raised `TypeError` on schema-based generation, which is
+how newer DeepEval metrics request structured output, so those metrics were
+silently broken there. `REDTEAM_DEFAULT_JUDGE` and `REDTEAM_USE_LLM_JUDGE` were
+removed: nothing read them, and `JUDGE_MODEL` is the single setting.
 
 DeepTeam's `model_callback` must be synchronous while the invoker is async.
 `asyncio.run()` is not a safe bridge -- with `async_mode=True` DeepTeam may call

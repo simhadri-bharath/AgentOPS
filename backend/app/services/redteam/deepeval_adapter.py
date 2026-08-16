@@ -24,7 +24,7 @@ from app.services.redteam.semantic_prompts import (
     SAFETY_CRITERIA,
     TOOL_CALLING_CRITERIA,
 )
-from app.services.redteam.vertex_gemini_llm import VertexGeminiJudge
+from app.services.evaluation.judge import get_judge
 
 logger = get_logger(__name__)
 
@@ -85,7 +85,9 @@ class DeepEvalAdapter:
         if not ok:
             raise RuntimeError(err or "DeepEval unavailable")
         self._model_name = model
-        self._judge_llm = VertexGeminiJudge(model=model, temperature=0.0)
+        # Shared judge: the previous one refused schema-based generation,
+        # which is how newer DeepEval metrics ask for structured output.
+        self._judge_llm = get_judge(model=model, temperature=0.0)
 
     async def judge_attack_success(
         self,
