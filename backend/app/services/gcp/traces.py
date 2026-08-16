@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -11,6 +12,15 @@ from app.core.logging import get_logger
 from app.schemas.traces import SpanNode, SpanRead, TraceRead
 
 logger = get_logger(__name__)
+
+# Cloud Trace list latency is ~10s and mostly its own; a short cache stops
+# every navigation between Traces, Logs and agent detail from re-paying it.
+_TRACE_CACHE_TTL_S = 60.0
+_TRACE_CACHE: dict[tuple, tuple[float, tuple]] = {}
+
+
+def clear_trace_cache() -> None:
+    _TRACE_CACHE.clear()
 
 # Span kind mapping from Cloud Trace API protobuf enum
 _SPAN_KINDS = {
@@ -46,15 +56,30 @@ class CloudTraceService:
         page_size: int = 50,
         status_filter: str | None = None,
         agent_filter: str | None = None,
+        force_refresh: bool = False,
     ) -> tuple[list[TraceRead], int]:
-        """List recent traces from Cloud Trace API."""
-        return await asyncio.to_thread(
+        """List recent traces from Cloud Trace API.
+
+        Cached briefly. The call takes ~10s and roughly 8s of that is Cloud
+        Trace's own latency rather than span volume, so it cannot be optimised
+        away -- but Traces, Logs and the agent detail page all read the same
+        window, and without a cache each navigation pays the full cost again.
+        """
+        key = (self._project_id, hours, page_size, status_filter, agent_filter)
+        if not force_refresh:
+            cached = _TRACE_CACHE.get(key)
+            if cached and (time.monotonic() - cached[0]) < _TRACE_CACHE_TTL_S:
+                return cached[1]
+
+        result = await asyncio.to_thread(
             self._list_traces_sync,
             hours=hours,
             page_size=page_size,
             status_filter=status_filter,
             agent_filter=agent_filter,
         )
+        _TRACE_CACHE[key] = (time.monotonic(), result)
+        return result
 
     def _list_traces_sync(
         self,

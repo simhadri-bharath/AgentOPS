@@ -16,6 +16,7 @@ async def list_traces(
     hours: int = Query(default=24, ge=1, le=168, description="Look-back window in hours"),
     limit: int = Query(default=50, ge=1, le=100, description="Max traces to return"),
     agent: str | None = Query(default=None, description="Filter by agent name"),
+    refresh: bool = Query(default=False, description="Bypass the 60s trace cache"),
 ) -> TraceListResponse:
     """List recent traces from Google Cloud Trace."""
     try:
@@ -24,6 +25,7 @@ async def list_traces(
             hours=hours,
             page_size=limit,
             agent_filter=agent,
+            force_refresh=refresh,
         )
         return TraceListResponse(
             items=traces,

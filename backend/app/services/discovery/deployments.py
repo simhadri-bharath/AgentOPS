@@ -131,6 +131,15 @@ async def list_deployments(
             )
 
     for deployment in deployments:
+        if not inspect_sessions:
+            # No sessions were read, so there is no evidence to infer from.
+            # Guessing "conversational" from class methods alone would show a
+            # confident wrong answer that the enrichment pass then silently
+            # corrects.
+            deployment.agent_type_guess = "unknown"
+            deployment.capabilities_guess = []
+            deployment.purpose_guess = _purpose_guess(deployment)
+            continue
         deployment.agent_type_guess = infer_agent_type(
             deployment.observed_tools,
             deployment.observed_authors,

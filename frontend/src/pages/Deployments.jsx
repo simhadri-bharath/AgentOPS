@@ -274,14 +274,27 @@ export default function Deployments() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [enriching, setEnriching] = useState(false)
   const [error, setError] = useState(null)
   const [drawer, setDrawer] = useState(null)
 
+  // Two-phase: the engine list alone returns in ~3s, but inferring type and
+  // capabilities means reading recent sessions, which takes ~7s. Waiting for
+  // both leaves the onboarding landing page on a spinner, so the rows render
+  // first and the inference fills in.
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true)
     setError(null)
     try {
-      setData(await fetchDeployments({ refresh }))
+      const fast = await fetchDeployments({ refresh, inspectSessions: false })
+      setData(fast)
+      setLoading(false)
+      setEnriching(true)
+      try {
+        setData(await fetchDeployments({ refresh, inspectSessions: true }))
+      } finally {
+        setEnriching(false)
+      }
     } catch (e) {
       setError(e.message)
     } finally {
@@ -306,10 +319,21 @@ export default function Deployments() {
         title="Deployments"
         subtitle={
           data
-            ? `Agent Engine · ${data.project || 'no project set'} · ${data.regions.join(', ')}`
+            ? // Listing all ten scanned regions wraps to two lines and buries
+              // the project. Name the regions agents were actually found in.
+              `Agent Engine · ${data.project || 'no project set'} · ${
+                [...new Set(items.map((d) => d.region))].join(', ') ||
+                data.regions.slice(0, 2).join(', ')
+              }`
             : 'Reading live inventory from Vertex AI'
         }
       >
+        {enriching && (
+          <span className="flex items-center gap-1.5 text-[12px] text-gray-500">
+            <Loader2 size={13} className="animate-spin" />
+            inferring types from recent sessions…
+          </span>
+        )}
         <Btn primary onClick={() => load(true)} disabled={refreshing}>
           {refreshing ? (
             <Loader2 size={13} className="animate-spin" />
@@ -379,7 +403,9 @@ export default function Deployments() {
                       d.observed_tools.join(', ')
                     ) : (
                       <span style={{ color: '#9CA3AF' }}>
-                        none in {d.sessions_inspected} session(s)
+                        {enriching
+                          ? 'reading sessions…'
+                          : `none in ${d.sessions_inspected} session(s)`}
                       </span>
                     )}
                   </Td>

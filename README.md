@@ -89,6 +89,13 @@ npm install
 npm run dev
 ```
 
+If port 8000 is taken, run the backend elsewhere and point the dev proxy at it:
+
+```bash
+python -m uvicorn app.main:app --reload --port 8010     # backend
+BACKEND_URL=http://127.0.0.1:8010 npm run dev           # frontend
+```
+
 Open the URL Vite prints (usually `http://localhost:5173`). The dev server
 proxies `/api` and `/health` to port 8000, so no frontend config is needed.
 
@@ -140,6 +147,8 @@ run spends real tokens.
 | Agent shows `conversational` but is RAG | Retrieval is internal, so no tool call is visible | Agent page → **Edit profile** → set `rag` + `retrieval` |
 | RAG metrics unavailable | No retrieval context | Run a test invoke; if it retrieved 0 documents, the tool response shape is unrecognised |
 | Run stuck after a restart | Background tasks die with the process | The startup sweep fails it; use **Retry** |
+| Frontend loads but all data is empty | Backend is on a different port than the proxy target | Start Vite with `BACKEND_URL=http://127.0.0.1:PORT` |
+| Traces takes ~15s the first time | Cloud Trace's own latency, not the app | Subsequent views are cached for 60s |
 | Cannot promote to golden | Rows missing expected output | Datasets → Review. The gate is deliberate |
 
 Fuller table in the [user guide](docs/USER_GUIDE.md#part-6--troubleshooting).
