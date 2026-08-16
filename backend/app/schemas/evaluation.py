@@ -37,9 +37,9 @@ JOB_STATUSES: list[str] = [
     "cancelled",
 ]
 
-# RAGAS is deliberately absent: it is not installed and has no code, and
-# offering it as a selectable framework was the same lie as the metric map.
-FRAMEWORKS: list[str] = ["deepeval", "deterministic"]
+# RAGAS is now genuinely implemented (executors/ragas_exec.py) rather than a
+# name in a list, so it is selectable again.
+FRAMEWORKS: list[str] = ["deepeval", "ragas", "deterministic"]
 
 
 # Existing rows store "vertex"/"vertex_ai" from before the rename; those runs did

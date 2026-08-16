@@ -439,6 +439,41 @@ the explicit-override path used by onboarding and PATCH.
 
 ---
 
+## 11b. RAGAS
+
+RAGAS was offered in the UI while uninstalled with zero code behind it -- every
+RAGAS metric name resolved to a string comparison. It was removed rather than
+left as a lie, and is now genuinely implemented.
+
+Five metrics, prefixed `ragas_` so a RAGAS score is never averaged together
+with the DeepEval metric of the same concept -- they measure similar things by
+different methods, and merging them would hide which produced a number:
+
+| Metric | Needs a reference? |
+|---|---|
+| `ragas_faithfulness` | No |
+| `ragas_context_precision` | No (without-reference variant) |
+| `ragas_context_recall` | Yes — `expected_output` |
+| `ragas_answer_relevancy` | No (embedding-based) |
+| `ragas_response_groundedness` | No |
+
+**The judge is hand-written, deliberately.** RAGAS ships an `llm_factory`, but
+every path through it needs a client this deployment does not have: the
+Instructor adapter wants a synchronous `google.genai.Client` while the metrics
+call `agenerate()`, and the LiteLLM adapter still demands a client instance.
+`ragas_llm.py` implements the two-method interface the metrics actually require
+(`generate` / `agenerate`) on the ADC credentials already in use — no API key,
+no second judge to keep in sync with `JUDGE_MODEL`, no LiteLLM dependency.
+
+The installed version is **0.4.3, not 0.2** — `ragas.metrics` is deprecated in
+favour of `ragas.metrics.collections`, and the earlier roadmap note not to
+trust the 0.2 import paths was correct.
+
+Verified against Vertex before wiring anything: a grounded answer scored
+faithfulness **1.0** and an ungrounded one **0.0**.
+
+---
+
 ## 12. Red teaming
 
 The catalogue is introspected from the installed DeepTeam rather than
@@ -508,7 +543,6 @@ These are decisions, not omissions.
 
 | Not built | Why |
 |---|---|
-| **RAGAS adapter** | DeepEval + deterministic + trace-health already cover the ground. RAGAS adds a third abstraction. It was removed from the UI rather than left as a dead option. |
 | **Vertex managed metrics** | The `MANAGED_METRIC_MAP` path is half-working and the registry now unblocks the trajectory family, but it is out of the agreed scope. |
 | **Cross-project discovery** | Every agent in this deployment lives in one project. The setting would be config with no caller. |
 | **Multi-turn metrics** | `knowledge_retention`, `conversation_relevancy`, `role_adherence`. The `conversation` column exists so datasets do not need re-bootstrapping later. |
@@ -574,6 +608,11 @@ These are decisions, not omissions.
 - **One scoring config** — thresholds, severity bands and fusion weights, served
   to the UI so colours cannot disagree with verdicts.
 - **One judge** — the hand-rolled one that refused schema generation is gone.
+- **RAGAS implemented** — five metrics on a Vertex-backed RAGAS judge.
+- **Dynamic red teaming fixed** — the callback must be async when
+  `async_mode=True`, or every attack silently errors.
+- **Import cycles removed** — three packages re-exported runners from
+  `__init__`, so a leaf import pulled the subsystem back onto itself.
 
 ### Tier 1 — small, high value
 

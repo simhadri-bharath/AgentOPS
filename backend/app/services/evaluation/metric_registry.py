@@ -61,6 +61,7 @@ class MetricSpec:
 DETERMINISTIC = "deterministic"
 TRACE_HEALTH = "trace_health"
 DEEPEVAL = "deepeval"
+RAGAS = "ragas"
 
 
 _SPECS: tuple[MetricSpec, ...] = (
@@ -190,6 +191,55 @@ _SPECS: tuple[MetricSpec, ...] = (
         supports_span=True,
         cost="medium",
         category="quality",
+    ),
+    # RAGAS metrics are prefixed so a RAGAS score is never averaged together
+    # with the DeepEval metric of the same name -- they measure similar things
+    # by different methods, and merging them would hide the difference.
+    MetricSpec(
+        name="ragas_faithfulness",
+        label="Faithfulness (RAGAS)",
+        executor=RAGAS,
+        description="Claim-level support for the answer in the retrieved documents.",
+        requires=("input", "actual_output", "retrieval_context"),
+        cost="medium",
+        category="rag",
+    ),
+    MetricSpec(
+        name="ragas_context_precision",
+        label="Context precision (RAGAS)",
+        executor=RAGAS,
+        description="Were the retrieved documents useful for this answer?",
+        requires=("input", "actual_output", "retrieval_context"),
+        cost="medium",
+        category="rag",
+    ),
+    MetricSpec(
+        name="ragas_context_recall",
+        label="Context recall (RAGAS)",
+        executor=RAGAS,
+        description="Did retrieval find everything the expected answer needed?",
+        requires=("input", "expected_output", "retrieval_context"),
+        requires_reference=True,
+        cost="medium",
+        category="rag",
+    ),
+    MetricSpec(
+        name="ragas_answer_relevancy",
+        label="Answer relevancy (RAGAS)",
+        executor=RAGAS,
+        description="Embedding-based relevance of the answer to the question.",
+        requires=("input", "actual_output"),
+        cost="medium",
+        category="quality",
+    ),
+    MetricSpec(
+        name="ragas_response_groundedness",
+        label="Response groundedness (RAGAS)",
+        executor=RAGAS,
+        description="Is the response grounded in the retrieved context?",
+        requires=("actual_output", "retrieval_context"),
+        cost="medium",
+        category="rag",
     ),
     MetricSpec(
         name="faithfulness",

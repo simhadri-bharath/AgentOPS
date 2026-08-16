@@ -30,6 +30,8 @@ from app.services.evaluation.executors.deterministic import (
     run_deterministic,
     run_trace_health,
 )
+from app.services.evaluation.executors.ragas_exec import _MetricRunner as _RagasRunner
+from app.services.evaluation.executors.ragas_exec import run_ragas
 from app.services.evaluation.judge import (
     estimate_cost_usd,
     framework_versions,
@@ -38,6 +40,7 @@ from app.services.evaluation.judge import (
 from app.services.evaluation.metric_registry import (
     DEEPEVAL,
     DETERMINISTIC,
+    RAGAS,
     METRIC_CONFIG_VERSION,
     TRACE_HEALTH,
     group_by_executor,
@@ -385,6 +388,30 @@ class EvaluationRunner:
                     outcomes[index].errors.update(result.errors)
                     outcomes[index].span_scores.extend(result.span_scores)
                     outcomes[index].judge_failed |= result.judge_failed
+
+        ragas_specs = grouped.get(RAGAS, [])
+        if ragas_specs:
+            runner = _RagasRunner()
+            for index, case in enumerate(cases):
+                if case.state is not InvocationState.SUCCESS:
+                    continue
+                # Availability is checked here too: RAGAS context recall needs
+                # an expected output, and scoring it against an empty string
+                # would produce a confident zero.
+                runnable = []
+                for spec in ragas_specs:
+                    reason = spec.unavailable_reason(case.available_fields())
+                    if reason:
+                        outcomes[index].unavailable[spec.name] = reason
+                    else:
+                        runnable.append(spec)
+                if not runnable:
+                    continue
+                scores, errors = await run_ragas(runnable, case, runner=runner)
+                outcomes[index].scores.update(scores)
+                outcomes[index].errors.update(errors)
+                if errors:
+                    outcomes[index].judge_failed = True
         return outcomes
 
     def _usage(

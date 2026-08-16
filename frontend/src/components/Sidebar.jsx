@@ -2,7 +2,7 @@ import React from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   Brain, Building2, LayoutDashboard, Bot, FlaskConical, Server, Database,
-  History, Activity, Terminal, ShieldAlert, Crosshair, Library, Rocket, Settings, ListChecks
+  History, Activity, Terminal, ShieldAlert, Rocket, Settings
 } from 'lucide-react'
 import { useAgents } from '../context/AgentsContext'
 
@@ -74,23 +74,23 @@ export default function Sidebar() {
         <NavItem to="/deployments" icon={Server} label="Deployments" />
         <NavItem to="/agents" icon={Bot} label="Agents" badge={agents.length} />
 
+        {/* "New evaluation" and "New scan" are actions, not destinations, so
+            they are buttons on the pages that list what they produce. Jobs and
+            History both listed evaluation runs from the same endpoint. */}
         <NavSection label="Evaluation" />
         <NavItem to="/datasets" icon={Database} label="Datasets" />
-        <NavItem to="/evaluation" icon={FlaskConical} label="New Evaluation" />
-        <NavItem to="/jobs" icon={ListChecks} label="Jobs" />
-        <NavItem to="/history" icon={History} label="History" />
+        <NavItem to="/jobs" icon={FlaskConical} label="Evaluations" />
+        <NavItem to="/history" icon={History} label="Compare runs" />
+
+        <NavSection label="Security" />
+        <NavItem to="/red-team" icon={ShieldAlert} label="Red team" />
 
         <NavSection label="Observability" />
         <NavItem to="/traces" icon={Activity} label="Traces" />
         <NavItem to="/logs" icon={Terminal} label="Logs" />
 
-        <NavSection label="Red team" />
-        <NavItem to="/red-team" icon={ShieldAlert} label="Scanner" />
-        <NavItem to="/red-team/scan" icon={Crosshair} label="New scan" />
-        <NavItem to="/red-team/library" icon={Library} label="Attack library" />
-
         <NavSection label="Setup" />
-        <NavItem to="/onboarding" icon={Rocket} label="Onboarding" />
+        <NavItem to="/onboarding" icon={Rocket} label="Getting started" />
         <NavItem to="/settings" icon={Settings} label="Settings" />
       </div>
 

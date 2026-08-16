@@ -25,7 +25,7 @@ Deployments  →  Onboard  →  Test  →  Dataset  →  Evaluate  →  Scores p
 | **Discovers** | Reads Agent Engines live from your GCP project — no registry to maintain |
 | **Classifies** | Infers agent type and capabilities from tools and sub-agents actually observed in its sessions |
 | **Invokes** | Calls the real deployed agent and harvests the full execution trace |
-| **Scores** | Real DeepEval judged metrics, deterministic checks, and trace health |
+| **Scores** | Real DeepEval and RAGAS judged metrics, deterministic checks, and trace health |
 | **Attributes** | Scores each sub-agent, so a low result names a component rather than "the agent" |
 | **Bootstraps** | Builds evaluation datasets from the agent's own production sessions |
 | **Red-teams** | 37 vulnerabilities, 28 attacks, and standards presets (OWASP, NIST, MITRE, EU AI Act) via DeepTeam |
@@ -95,6 +95,9 @@ If port 8000 is taken, run the backend elsewhere and point the dev proxy at it:
 python -m uvicorn app.main:app --reload --port 8010     # backend
 BACKEND_URL=http://127.0.0.1:8010 npm run dev           # frontend
 ```
+
+On a fresh install the Dashboard shows a three-step guide — onboard an agent,
+build a dataset, run an evaluation — rather than empty charts.
 
 Open the URL Vite prints (usually `http://localhost:5173`). The dev server
 proxies `/api` and `/health` to port 8000, so no frontend config is needed.

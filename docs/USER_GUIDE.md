@@ -76,6 +76,26 @@ npm run dev
 Check `GET /health` — it reports the database, ADC, and **which project and region
 are configured**.
 
+### 2.1a Finding your way around
+
+The sidebar has five groups. **Deployments → Agents → Datasets → Evaluations**
+is the whole path from "nothing set up" to "first score".
+
+| Group | What is there |
+|---|---|
+| Platform | Dashboard, Deployments, Agents |
+| Evaluation | Datasets, Evaluations, Compare runs |
+| Security | Red team |
+| Observability | Traces, Logs |
+| Setup | Getting started, Settings |
+
+Creating things happens from buttons on the page that lists them — **New
+evaluation** on Evaluations, **Configure scan** on Red team — rather than from
+separate menu entries.
+
+On a fresh install the Dashboard shows a three-step guide instead of empty
+charts, and marks off each step as you complete it.
+
 ### 2.2 See what is deployed
 
 Open **Deployments**. It reads Vertex AI live and writes nothing.
@@ -308,11 +328,17 @@ it wrong" are different findings.
 
 ### 3.2 Retrieval quality — RAG agents
 
+Two frameworks measure this, by different methods. DeepEval metrics are
+unprefixed; RAGAS metrics are prefixed `ragas_`. They are kept separate on
+purpose — averaging them would hide which produced a number. Running both on
+the same dataset is a useful cross-check when a score looks surprising.
+
 | Question | Metric |
 |---|---|
 | Are the relevant documents ranked above the irrelevant ones? | `contextual_precision` |
 | Did retrieval find everything the answer needed? | `contextual_recall` |
 | Did retrieval return anything usable at all? | Case category `retrieval_failure` |
+| Same questions, second opinion | `ragas_faithfulness`, `ragas_context_precision`, `ragas_context_recall`, `ragas_answer_relevancy`, `ragas_response_groundedness` |
 
 ### 3.3 Tool use and trajectory
 
@@ -566,6 +592,8 @@ page (partial results are kept, not discarded), and any non-running job can be
 | Comparison says "not directly comparable" | Judge, dataset version or metric config differs between the runs | Re-run the baseline under current settings, or treat the delta as indicative only |
 | Dataset version jumped several numbers | Every row edit is a new version | Expected — a run snapshots the version it used |
 | Red-team catalogue returns 503 | `deepteam` not installed | `pip install -r requirements.txt` |
+| RAGAS metrics all report an error | `ragas` not installed | `pip install -r requirements.txt` |
+| `ragas_context_recall` unavailable | It needs `expected_output` | Review the dataset and fill it in |
 | Scan rejected with "Unknown vulnerability" | A name not in the installed DeepTeam | The error lists the valid names; or pick a framework preset instead |
 | Severity colours changed on old findings | The UI used its own thresholds and disagreed with the backend | Expected — bands now come from `GET /redteam/meta/scoring` |
 | Scan runs for a very long time | Every attack is an agent round-trip plus judge calls | Cancel it; narrow the scope; raise `REDTEAM_CONCURRENCY` |
@@ -590,6 +618,7 @@ page (partial results are kept, not discarded), and any non-running job can be
 | **Golden dataset** | A dataset where every row has a human-approved `expected_output`. |
 | **Judge** | Gemini on Vertex AI, scoring LLM-judged metrics. |
 | **Span metric** | A metric scored on individual sub-agents as well as the whole trace. |
+| **`ragas_` prefix** | The metric is computed by RAGAS rather than DeepEval. Kept separate so the two are never averaged together. |
 | **Framework preset** | A published standard (OWASP, NIST, MITRE, EU AI Act) that DeepTeam maps to its own vulnerabilities and attacks. |
 | **Custom / Dynamic scan** | Fixed attack library versus attacks generated for the agent's stated purpose. |
 | **Classification** | A red-team verdict: `PASS` resisted, `FAIL` complied, `UNCERTAIN` undecided. |

@@ -150,19 +150,41 @@ def test_baseline_metrics_need_no_reference():
             assert METRIC_REGISTRY[name].requires_reference is False
 
 
-def test_legacy_vertex_framework_still_readable_but_ragas_is_not():
-    """Old rows stored 'vertex'; those runs executed and stay re-runnable.
-
-    'ragas' is not forgiven: it was selectable while uninstalled with zero code,
-    so accepting it would recreate the same lie under a different name.
-    """
+def test_legacy_vertex_framework_maps_to_deepeval():
+    """Old rows stored 'vertex'; those runs executed and stay re-runnable."""
     from app.schemas.evaluation import FRAMEWORKS, normalize_framework
 
     assert normalize_framework("vertex") == "deepeval"
     assert normalize_framework("vertex_ai") == "deepeval"
     assert normalize_framework("deepeval") == "deepeval"
-    assert normalize_framework("ragas") not in FRAMEWORKS
     assert normalize_framework("anything-else") not in FRAMEWORKS
+
+
+def test_ragas_is_selectable_now_that_it_is_implemented():
+    """It was removed while it was a name with no code behind it."""
+    from app.schemas.evaluation import FRAMEWORKS
+
+    assert "ragas" in FRAMEWORKS
+
+
+def test_ragas_metrics_are_namespaced_away_from_deepeval():
+    # Both frameworks measure faithfulness by different methods; averaging the
+    # two under one name would hide which produced a score.
+    from app.services.evaluation.metric_registry import METRIC_REGISTRY, RAGAS
+
+    ragas_metrics = [n for n, s in METRIC_REGISTRY.items() if s.executor == RAGAS]
+    assert ragas_metrics, "no RAGAS metrics registered"
+    assert all(n.startswith("ragas_") for n in ragas_metrics)
+    assert "faithfulness" in METRIC_REGISTRY
+    assert METRIC_REGISTRY["faithfulness"].executor != RAGAS
+
+
+def test_ragas_context_recall_declares_its_reference_requirement():
+    from app.services.evaluation.metric_registry import METRIC_REGISTRY
+
+    spec = METRIC_REGISTRY["ragas_context_recall"]
+    assert spec.requires_reference is True
+    assert "expected_output" in spec.requires
 
 
 def test_registry_has_no_metric_the_old_ui_offered_but_backend_dropped():

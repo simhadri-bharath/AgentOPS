@@ -8,10 +8,12 @@ import Badge from '../components/Badge'
 import AgentIcon from '../components/AgentIcon'
 import Btn from '../components/Btn'
 import EmptyState from '../components/EmptyState'
+import FirstRunGuide from '../components/FirstRunGuide'
 import { Table, THead, Th, Td, TRow } from '../components/Table'
 import { useAgents } from '../context/AgentsContext'
 import { formatRelativeTime } from '../lib/agentMapper'
 import { fetchEvaluations } from '../api/evaluations'
+import { fetchDatasets } from '../api/datasets'
 import { shortId } from '../lib/evaluationMapper'
 
 const statusBadge = (s) => {
@@ -33,6 +35,7 @@ export default function Dashboard() {
   const { agents, loading, lastSyncedAt, health } = useAgents()
 
   const [runs, setRuns] = useState([])
+  const [datasetCount, setDatasetCount] = useState(0)
   const [runsLoading, setRunsLoading] = useState(true)
 
   useEffect(() => {
@@ -49,6 +52,12 @@ export default function Dashboard() {
       .finally(() => {
         if (!cancelled) setRunsLoading(false)
       })
+    // Only the count matters here, for the first-run guide's second step.
+    fetchDatasets({ limit: 1 })
+      .then((data) => {
+        if (!cancelled) setDatasetCount(data.total ?? (data.items || []).length)
+      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
@@ -197,6 +206,9 @@ export default function Dashboard() {
           All agents across your GCP environment — {syncLabel}
         </div>
       </div>
+
+      {/* Empty charts tell a new user nothing about where to start. */}
+      <FirstRunGuide agents={agents} datasets={datasetCount} runs={runs.length} />
 
       <div className="grid grid-cols-6 gap-3 mb-5">
         <StatCard
