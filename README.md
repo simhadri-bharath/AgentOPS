@@ -131,6 +131,8 @@ curl http://127.0.0.1:8000/health
    Run it.
 6. **Job details** — scores with the judge's reasoning, cost, and a breakdown per
    sub-agent.
+7. **Red team** — pick a framework preset (start with `OWASP_ASI_2026` for a
+   tool-using agent) and scan a dev agent first. Scans are cancellable.
 
 Start with a handful of samples. A retrieval turn takes 30–45 seconds and every
 run spends real tokens.
@@ -165,9 +167,11 @@ Fuller table in the [user guide](docs/USER_GUIDE.md#part-6--troubleshooting).
 | `INVOKE_CONCURRENCY` | `8` | Concurrent agent invocations |
 | `JUDGE_MODEL` | `gemini-2.5-flash` | Evaluation judge |
 | `JUDGE_CONCURRENCY` | `6` | Concurrent judge calls |
+| `REDTEAM_CONCURRENCY` | `5` | Concurrent attacks per scan |
 | `METRIC_PASS_THRESHOLD` | `0.7` | Mean score for a sample to pass |
 | `EVALUATION_TIMEOUT_SECONDS` | `120` | Per-invocation timeout |
 | `CORS_ORIGINS` | empty | Comma-separated; empty means `*` in dev |
+| `BACKEND_URL` | `http://127.0.0.1:8000` | Frontend only — Vite dev-proxy target |
 
 ---
 

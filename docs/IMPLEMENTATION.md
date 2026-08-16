@@ -84,6 +84,12 @@ rewriting every evaluator.
 | `backend/app/services/discovery/deployments.py` | Live, read-only inventory of what is deployed |
 | `backend/app/services/datasets/from_sessions.py` | Golden-set bootstrap from production traffic |
 | `backend/app/services/evaluation/sweeper.py` | Fails runs orphaned by a restart |
+| `backend/app/services/evaluation/registry.py` | Maps a run id to its invoker, so a run can be cancelled |
+| `backend/app/services/evaluation/comparison.py` | Run-over-run deltas and comparability checks |
+| `backend/app/services/invokers/sync_bridge.py` | Calls async code from DeepTeam's synchronous callback |
+| `backend/app/services/redteam/deepteam_catalog.py` | Vulnerabilities, attacks and frameworks, introspected |
+| `backend/app/services/redteam/scoring_config.py` | Every number that decides a red-team verdict |
+| `backend/app/services/datasets/row_editor.py` | Reading and editing dataset rows for review |
 
 ---
 
@@ -346,34 +352,71 @@ calls and that needs to be visible rather than discovered on an invoice.
 
 ## 10. API surface
 
+54 endpoints. Everything the frontend calls has been exercised against a live
+backend.
+
+**Health and deployments**
+
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/health` | DB, ADC, configured project and region |
-| GET | `/api/v1/deployments` | Live inventory + activity + inferred type (read-only) |
-| GET | `/api/v1/deployments/{engine_id}` | Full spec, class methods, recent sessions |
+| GET | `/health` | DB, ADC, configured project and region (cached 30s) |
+| GET | `/api/v1/deployments` | Live inventory, activity, inferred type (60s cache) |
+| GET | `/api/v1/deployments/{engine_id}` | Spec, class methods, recent sessions |
 | POST | `/api/v1/deployments/{engine_id}/test-invoke` | Invoke before onboarding; writes nothing |
 | POST | `/api/v1/deployments/onboard` | Create the agent record |
 | DELETE | `/api/v1/deployments/onboard/{agent_id}` | Remove it |
-| GET | `/api/v1/agents` · `/{id}` | Agent registry |
-| PATCH | `/api/v1/agents/{id}` | Edit type, capabilities, purpose, environment |
+| POST/GET | `/api/v1/discovery/vertex-ai/sync` · `/test` | Refresh onboarded agents; ADC probe |
+
+**Agents**
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/v1/agents` · `/{id}` · `/{id}/evaluations` | Registry |
+| PATCH | `/api/v1/agents/{id}` | Type, capabilities, purpose, environment |
 | GET | `/api/v1/agents/{id}/recommended-metrics` | Metric pack for this agent |
-| POST | `/api/v1/agents/{id}/test-invoke` | One prompt, full trace back |
 | GET | `/api/v1/agents/{id}/metadata` | A2A card / SDK metadata |
+| POST | `/api/v1/agents/{id}/test-invoke` | One prompt, full trace back |
+
+**Datasets**
+
+| Method | Path | Purpose |
+|---|---|---|
 | POST | `/api/v1/datasets/upload` | CSV/JSON upload |
-| POST | `/api/v1/datasets/from-sessions/preview` | Harvest candidate cases |
-| POST | `/api/v1/datasets/from-sessions` | Persist reviewed cases |
-| PATCH | `/api/v1/datasets/{id}/review` | Advance review status (gated) |
-| GET | `/api/v1/datasets/{id}/rows` | Rows with review state, filterable to unreviewed |
-| PATCH | `/api/v1/datasets/{id}/rows/{index}` | Fill in a reviewer's judgement; bumps dataset version |
-| GET | `/api/v1/evaluations/meta/metrics` | The metric catalogue |
-| POST | `/api/v1/evaluations/{id}/cancel` | Stop a running or queued run |
-| DELETE | `/api/v1/evaluations/{id}` | Delete a run and its results |
-| GET | `/api/v1/evaluations/{id}/compare?baseline=` | Run-over-run deltas + comparability warnings |
-| POST | `/api/v1/evaluations/jobs` · `/{id}/run` · `/run` | Create / queue / one-shot |
-| POST | `/api/v1/evaluations/{id}/retry` | Re-run a failed job |
+| GET/DELETE | `/api/v1/datasets` · `/{id}` | List, read, delete |
+| POST | `/api/v1/datasets/from-sessions/preview` · `/from-sessions` | Harvest, then persist reviewed cases |
+| GET | `/api/v1/datasets/{id}/rows` | Rows with review state; `unreviewed_only` filter |
+| PATCH | `/api/v1/datasets/{id}/rows/{index}` | Reviewer edit; bumps dataset version |
+| PATCH | `/api/v1/datasets/{id}/review` | Advance review status (golden is gated) |
+
+**Evaluations**
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/v1/evaluations/meta/metrics` | Metric catalogue with availability rules |
+| POST | `/api/v1/evaluations/jobs` · `/{id}/run` · `/run` | Create, queue, one-shot |
+| PATCH | `/api/v1/evaluations/{id}` | Edit a draft |
+| POST | `/api/v1/evaluations/{id}/retry` · `/cancel` | Re-run; stop a running job |
+| DELETE | `/api/v1/evaluations/{id}` | Delete run and results |
+| GET | `/api/v1/evaluations/{id}/compare?baseline=` | Deltas + comparability warnings |
 | GET | `/api/v1/evaluations/{id}` · `/results` · `/results/{rid}` | Run, samples, one sample |
-| GET/POST | `/api/v1/redteam/*` | Red-team scans (see §12) |
-| GET | `/api/v1/traces` · `/{trace_id}` | Cloud Trace proxy |
+
+**Red team**
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/v1/redteam/deepteam/vulnerabilities` · `/attacks` · `/frameworks` | Catalogue, from the installed package |
+| GET | `/api/v1/redteam/meta/scoring` | Thresholds the backend scores with |
+| GET | `/api/v1/redteam/meta/judge-models` | Judge options |
+| POST/GET | `/api/v1/redteam/runs` · `/{id}` · `/results` | Launch, read |
+| POST | `/api/v1/redteam/runs/{id}/cancel` | Stop a scan |
+| GET/POST | `/api/v1/redteam/test-cases` | Attack library |
+| GET | `/api/v1/redteam/dashboard` | Aggregate stats |
+
+**Traces**
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/v1/traces` · `/{trace_id}` | Cloud Trace proxy (60s cache, `?refresh=true`) |
 
 ---
 
@@ -396,7 +439,7 @@ the explicit-override path used by onboarding and PATCH.
 
 ---
 
-## 11a. Red teaming
+## 12. Red teaming
 
 The catalogue is introspected from the installed DeepTeam rather than
 hand-written. The previous two literals exposed 21 of 37 vulnerabilities and 9
@@ -459,7 +502,7 @@ coroutine is submitted to a dedicated loop on its own thread
 
 ---
 
-## 12. What is NOT built (deliberate)
+## 13. What is NOT built (deliberate)
 
 These are decisions, not omissions.
 
@@ -476,7 +519,7 @@ These are decisions, not omissions.
 
 ---
 
-## 13. Known limitations
+## 14. Known limitations
 
 1. **Latency is high and irreducible.** A retrieval turn against the live chat
    agent takes 30–48 seconds. A 50-sample run at `INVOKE_CONCURRENCY=8` takes
@@ -490,22 +533,23 @@ These are decisions, not omissions.
    type inference proposes `conversational`. This is honest — it reports only what
    is observable — but means you must set `rag` manually for those two.
 
-4. **Red team still uses the old invoker.** It has not been migrated to
-   `AgentEngineInvoker`, so its trace IDs are still synthetic and its scans are
-   still serial.
-
-5. **Cost figures are estimates.** Based on published Gemini Flash rates, not
+4. **Cost figures are estimates.** Based on published Gemini Flash rates, not
    billing data.
 
-6. **`runtimeRevisions` is unavailable.** The v1 API has no `list` method and
+5. **`runtimeRevisions` is unavailable.** The v1 API has no `list` method and
    returns 404 on these engines, so revision-level comparison is not possible.
 
-7. **Startup discovery scans 10 regions on every boot.** Regions not enabled for
-   the project log a warning and are skipped, which is noisy but harmless.
+6. **Startup discovery scans 10 regions on every boot.** It now runs in the
+   background so it no longer delays serving, but regions not enabled for the
+   project still log a warning.
+
+7. **Cloud Trace listing takes ~10s cold.** Roughly 8s is Cloud Trace's own
+   latency, not something the app can optimise. Cached for 60s, so only the
+   first view in a window pays it.
 
 ---
 
-## 14. Roadmap — ordered by value per unit of work
+## 15. Roadmap
 
 ### Delivered since the first draft of this roadmap
 
@@ -524,6 +568,12 @@ These are decisions, not omissions.
 - **Run comparison** — deltas per metric, per sub-agent and per sample, with the
   run snapshots checked so a judge or dataset change is reported instead of
   being read as a regression.
+- **Red team on the shared invoker** — real traces, cancellation, concurrency.
+- **DeepTeam catalogue derived from the package** — 37 vulnerabilities, 28
+  attacks, 7 framework presets, replacing two hand-written literals.
+- **One scoring config** — thresholds, severity bands and fusion weights, served
+  to the UI so colours cannot disagree with verdicts.
+- **One judge** — the hand-rolled one that refused schema generation is gone.
 
 ### Tier 1 — small, high value
 
@@ -537,11 +587,9 @@ These are decisions, not omissions.
 
 | Item | Why |
 |---|---|
-| **Red-team on the new invoker** | Real trace IDs, real trajectories, concurrency, and cancellation come free. Currently red-team findings carry synthetic `redteam-<hex>` IDs that Cloud Trace cannot resolve. |
 | **Red-team scope enforcement** | Backend-enforced gate on `agent.environment` before `POST /redteam/runs`. The column exists for exactly this. |
 | **Tool safety policy** | `allowed` / `read_only` / `requires_confirmation` / `blocked` per tool, so a red-team run cannot exercise destructive capabilities against real infrastructure. `ToolKind` is the classification layer it builds on. |
 | **Multi-turn metrics** | `knowledge_retention`, `conversation_relevancy`, `role_adherence`. The `conversation` column already carries the history. |
-| **DeepTeam catalogue derivation** | The hand-maintained list exposes 21 of ~38 vulnerabilities and omits every agentic one (`goal_theft`, `recursive_hijacking`, `tool_orchestration_abuse`, `unexpected_code_execution`, `agent_identity_abuse`) — precisely the ones that matter for an ADK tool agent. |
 | **Scheduled / CI evaluation** | Run a golden set nightly or on agent redeploy; alert on regression. |
 
 ### Tier 3 — larger
@@ -556,7 +604,7 @@ These are decisions, not omissions.
 
 ---
 
-## 14a. Endpoint coverage
+## 16. Endpoint coverage
 
 Every path the frontend calls was probed live against the running backend.
 All 40 respond correctly; the API surface has no gaps relative to the UI.
@@ -571,9 +619,9 @@ Payload shapes were checked in both directions, not just status codes:
 `RedTeamRunCreate` against `startRedTeamRun`, and `RedTeamTestCaseCreate`
 against the Attack Library form. Both match.
 
-## 15. Testing
+## 17. Testing
 
-60 tests, `backend/tests/`. There were none before this work (`c547d76 "removed
+81 tests, `backend/tests/`. There were none before this work (`c547d76 "removed
 test files"`).
 
 | File | Covers |
@@ -588,33 +636,46 @@ test files"`).
 cd backend && python -m pytest -q
 ```
 
+Also covered: run comparison including harness-drift detection, the sync bridge
+called from inside a running loop, red-team scoring thresholds and fusion
+weights, and the terminal-status rule that fails a run where nothing was
+invoked.
+
 Not covered: live GCP calls (they need credentials and cost money), the FastAPI
 route layer, and the frontend.
 
 ---
 
-## 16. Configuration
+## 18. Configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `GCP_PROJECT_ID` | — | Project containing the agents |
-| `GCP_REGION` | `us-central1` | Comma-separated list is accepted |
+| `GCP_REGION` | `us-central1` | Comma-separated list accepted |
 | `DATABASE_URL` | — | `postgresql+asyncpg://…` |
 | `INVOKE_CONCURRENCY` | `8` | Concurrent agent invocations |
 | `JUDGE_CONCURRENCY` | `6` | Concurrent judge calls |
-| `JUDGE_MODEL` | `gemini-2.5-flash` | Shared evaluation judge |
+| `REDTEAM_CONCURRENCY` | `5` | Concurrent attacks per scan |
+| `JUDGE_MODEL` | `gemini-2.5-flash` | The single judge, shared by evaluation and both scan modes |
 | `JUDGE_TEMPERATURE` | `0.0` | |
-| `METRIC_PASS_THRESHOLD` | `0.7` | Mean judged score for a sample to count as passed |
+| `METRIC_PASS_THRESHOLD` | `0.7` | Mean judged score for a sample to pass |
 | `EVALUATION_TIMEOUT_SECONDS` | `120` | Per-invocation timeout |
-| `CORS_ORIGINS` | empty | Comma-separated; empty means `*` in dev, none in prod |
+| `EVALUATION_MAX_RETRIES` | `2` | |
 | `ORPHANED_RUN_TIMEOUT_MINUTES` | `60` | Runs still `running` this long after a restart are failed on boot |
+| `DATASET_STORAGE_DIR` | `data/datasets` | |
+| `CORS_ORIGINS` | empty | Comma-separated; empty means `*` in dev, none in prod |
+| `BACKEND_URL` (frontend) | `http://127.0.0.1:8000` | Vite dev-proxy target |
+
+`REDTEAM_DEFAULT_JUDGE` and `REDTEAM_USE_LLM_JUDGE` were removed — nothing read
+them. `JUDGE_MODEL` is the judge setting, and `use_llm_judge` is a per-run
+choice on the scan request.
 
 Authentication is **ADC only** — `gcloud auth application-default login`. No
 service-account keys are stored anywhere.
 
 ---
 
-## 17. Commit history
+## 19. Commit history
 
 | Commit | Contents |
 |---|---|
@@ -623,4 +684,18 @@ service-account keys are stored anywhere.
 | `0bf887e` | Phase 3 — canonical trace pipeline and invoker |
 | `a7aa608` | Phase 4 — datasets from production sessions |
 | `38f7f28` | Phase 5 — real DeepEval metrics |
-| `8cb6101` | Ops hygiene — orphaned runs, CORS, error leakage, log labelling |
+| `8cb6101` | Ops hygiene — orphaned runs, CORS, error leakage |
+| `c89f9e3` | Implementation and user documentation |
+| `7b04a78` | Close gaps left by the metric-layer rewrite |
+| `47a8ab2` | Fix Traces endpoint, record endpoint coverage |
+| `a44ea7d` | Dataset row review, cancel, delete, run comparison |
+| `2d09d84` | Honest auth failures; cross-project quota fix |
+| `5a6696f` | UI onboarding, agent profile editor, run profile panel |
+| `d575ff6` | README and getting-started |
+| `901e610` | Browser-verified UI fixes; two-phase deployments; trace cache |
+| `c169701` | DeepTeam catalogue derived; framework presets; health unblocked |
+| `7848b05` | Catalogue in the UI; inactive agents not selectable |
+| `73ca087` | Red team on the shared invoker; cancellation |
+| `46bac8e` | Cancelled scans report cancelled |
+| `0574069` | One judge; dead settings removed |
+| `e069d07` | Red-team scoring consolidated into one config |

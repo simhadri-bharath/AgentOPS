@@ -275,6 +275,13 @@ formatter_agent answer_relevancy 1.0      faithfulness 1.0
 research step is weak and the formatter is covering for it. Fix the research
 prompt, not the formatter.
 
+#### Controls on a run
+
+A running job can be **cancelled** — it keeps what it completed. Any
+non-running job can be **deleted** with its results. On **History**,
+**Compare runs** diffs two runs metric by metric, per sub-agent and per sample,
+and warns when the harness moved between them.
+
 #### Not scored
 
 Metrics whose inputs were missing appear separately, with the reason:
@@ -350,7 +357,17 @@ sub-agent. This is what an end-to-end number cannot do.
 | What did evaluating it cost? | `usage.agent_cost_usd_estimate`, `judge_metric_evaluations` |
 | Is the agent reachable and healthy? | `states` breakdown on the run |
 
-### 3.7 What it cannot tell you
+### 3.7 Security posture
+
+| Question | Where |
+|---|---|
+| Can the agent be talked out of its instructions? | Red team, jailbreak and prompt-injection vulnerabilities |
+| Will it leak its system prompt or user PII? | `PromptLeakage`, `PIILeakage` |
+| Can its tools be abused? | `ToolOrchestrationAbuse`, `ExcessiveAgency`, `UnexpectedCodeExecution` |
+| Can it be made to act as another agent? | `AgentIdentityAbuse` |
+| Does it meet a published standard? | Framework presets — OWASP, NIST, MITRE, EU AI Act |
+
+### 3.8 What it cannot tell you
 
 Be clear about the boundaries:
 
@@ -405,7 +422,92 @@ not mean the agent is good.
 
 ---
 
-## Part 5 — Recommended first week
+## Part 5 — Red teaming
+
+Evaluation asks whether the agent is *good*. Red teaming asks whether it can be
+*made to misbehave*. Both run against the live deployed agent.
+
+### 5.1 Pick a standard, not a checklist
+
+The scan wizard offers 37 vulnerabilities and 28 attacks, derived from the
+installed DeepTeam rather than a hand-maintained list. Assembling those by hand
+is rarely what you want.
+
+**Choose a framework preset instead.** DeepTeam maps the standard to its own
+vulnerabilities and attacks:
+
+| Preset | Covers |
+|---|---|
+| `OWASPTop10` | OWASP Top 10 for LLMs 2025 |
+| `OWASP_ASI_2026` | OWASP Top 10 for Agentic Applications 2026 |
+| `NIST` | NIST AI Risk Management Framework |
+| `MITRE` | MITRE ATLAS |
+| `EUAIAct` | EU Artificial Intelligence Act |
+| `Aegis`, `BeaverTails` | Dataset-based safety suites |
+
+Picking one drops the wizard from six steps to four. **For a tool-using agent,
+`OWASP_ASI_2026` is the one to start with** — it targets the agentic
+vulnerabilities (goal theft, recursive hijacking, tool orchestration abuse,
+unexpected code execution, agent identity abuse) that a generic LLM standard
+does not cover.
+
+### 5.2 The two scan modes
+
+| Mode | What it does | When |
+|---|---|---|
+| **Custom** | Runs a fixed library of attack prompts, judged by rules plus an LLM | Fast, repeatable, cheap. Good for regression. |
+| **Dynamic** (DeepTeam) | Generates attacks tailored to the agent's stated purpose, including multi-turn | Thorough. Slower and costs more. |
+
+Dynamic mode uses `agent.purpose`, so an agent with a vague purpose gets vague
+attacks. Set it properly on the agent page.
+
+### 5.3 Scans are long, and stoppable
+
+Every attack is a full agent round-trip plus judge calls. Against a 40-second
+retrieval agent, a broad scan takes a long time. Two things follow:
+
+- Attacks run concurrently, tuned by `REDTEAM_CONCURRENCY`.
+- **A running scan can be cancelled.** It stops, keeps the findings it already
+  produced, and reports `cancelled` with how far it got — for example
+  *"Cancelled after 1 of 5 attack(s)"*. A stopped scan is never reported as
+  completed, because partial coverage must not read as a clean result.
+
+**Start narrow.** One category, or one framework, against a dev agent.
+
+### 5.4 Reading findings
+
+Each finding carries the attack prompt, the agent's answer, a classification,
+a severity, the judge's reasoning, and the **real invocation trace** — the
+sub-agent path and the tools that were called. A finding is a place to look,
+not just a verdict.
+
+| Classification | Meaning |
+|---|---|
+| `PASS` | The agent resisted |
+| `FAIL` | The agent complied with the attack |
+| `UNCERTAIN` | The judge could not decide — read it yourself |
+
+Severity comes from the same thresholds that produce the classification, served
+by `GET /api/v1/redteam/meta/scoring`, so the colour on a finding always agrees
+with its verdict:
+
+```
+critical >= 85    high >= 65    medium >= 45    low >= 35
+```
+
+### 5.5 Safety
+
+These scans send hostile prompts to a **real deployed agent**. They run under a
+dedicated `agentops-redteam` user and delete their sessions afterwards, so they
+do not pollute production session history — but the agent really does receive
+them, and any tool it calls really executes.
+
+Set `environment` honestly at onboarding, and prefer a dev or staging agent for
+your first scan.
+
+---
+
+## Part 6 — Recommended first week
 
 **Day 1 — See and verify**
 1. Set `GCP_PROJECT_ID`, run migrations, start both services
@@ -430,6 +532,12 @@ not mean the agent is good.
 10. Read span scores; identify the weak sub-agent
 11. Record the run's aggregate scores as your baseline
 
+**Day 5 — Security**
+14. Run a red-team scan with `OWASP_ASI_2026` against a **dev** agent first.
+    Start narrow and cancel it if it runs longer than you expected.
+15. Read the findings: each carries the real trace, so a `FAIL` points at the
+    sub-agent and tool that let it through.
+
 **Ongoing**
 12. Re-run after every agent change, against the same dataset version
 13. On **History**, use **Compare runs** to diff against the baseline. Read the
@@ -442,7 +550,7 @@ page (partial results are kept, not discarded), and any non-running job can be
 
 ---
 
-## Part 6 — Troubleshooting
+## Part 7 — Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -457,12 +565,18 @@ page (partial results are kept, not discarded), and any non-running job can be
 | Cannot promote to `golden` | Rows missing `expected_output` | Datasets → Review → fill each row. The gate is deliberate |
 | Comparison says "not directly comparable" | Judge, dataset version or metric config differs between the runs | Re-run the baseline under current settings, or treat the delta as indicative only |
 | Dataset version jumped several numbers | Every row edit is a new version | Expected — a run snapshots the version it used |
+| Red-team catalogue returns 503 | `deepteam` not installed | `pip install -r requirements.txt` |
+| Scan rejected with "Unknown vulnerability" | A name not in the installed DeepTeam | The error lists the valid names; or pick a framework preset instead |
+| Severity colours changed on old findings | The UI used its own thresholds and disagreed with the backend | Expected — bands now come from `GET /redteam/meta/scoring` |
+| Scan runs for a very long time | Every attack is an agent round-trip plus judge calls | Cancel it; narrow the scope; raise `REDTEAM_CONCURRENCY` |
+| Agent missing from a run/scan dropdown | It is inactive — usually from a different GCP project | It stays on the Agents page; re-onboard it if the project is right |
+| App feels hung on first load | Was a blocking health check; fixed | If it recurs, check `/health` response time |
 | Judge errors on `tool_correctness` | Judge not passed to the metric | Fixed; if it recurs, check `JUDGE_MODEL` is reachable in your region |
 | Traces / Logs pages show 502 | `google-cloud-trace` not installed | `pip install -r requirements.txt` — it is declared but easy to miss |
 
 ---
 
-## Part 7 — Glossary
+## Part 8 — Glossary
 
 | Term | Meaning |
 |---|---|
@@ -476,3 +590,7 @@ page (partial results are kept, not discarded), and any non-running job can be
 | **Golden dataset** | A dataset where every row has a human-approved `expected_output`. |
 | **Judge** | Gemini on Vertex AI, scoring LLM-judged metrics. |
 | **Span metric** | A metric scored on individual sub-agents as well as the whole trace. |
+| **Framework preset** | A published standard (OWASP, NIST, MITRE, EU AI Act) that DeepTeam maps to its own vulnerabilities and attacks. |
+| **Custom / Dynamic scan** | Fixed attack library versus attacks generated for the agent's stated purpose. |
+| **Classification** | A red-team verdict: `PASS` resisted, `FAIL` complied, `UNCERTAIN` undecided. |
+| **Invocation state** | Why a sample did or did not produce a result: `SUCCESS`, `AGENT_ERROR`, `AUTH_ERROR`, `JUDGE_ERROR`, `TIMEOUT`, `RATE_LIMITED`, `HARVEST_ERROR`, `CANCELLED`. |
