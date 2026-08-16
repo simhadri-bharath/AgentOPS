@@ -115,9 +115,16 @@ export default function Logs() {
 
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
           {loading && logsList.length === 0 ? (
-            <div className="flex items-center justify-center py-12 text-gray-500 gap-2">
-              <Loader2 size={18} className="animate-spin text-indigo-600" />
-              Loading logs from Cloud Trace streams…
+            <div className="flex flex-col items-center justify-center py-12 text-gray-500 gap-2">
+              <div className="flex items-center gap-2">
+                <Loader2 size={18} className="animate-spin text-indigo-600" />
+                Reading Cloud Trace spans…
+              </div>
+              {/* Same cold-query cost as the Traces page: silence for that long
+                  reads as a hang. */}
+              <div className="text-[11px]" style={{ color: '#9CA3AF' }}>
+                The first read of a time window can take around 15 seconds.
+              </div>
             </div>
           ) : filteredLogs.length > 0 ? (
             filteredLogs.map((log, i, arr) => (

@@ -16,6 +16,14 @@ import { fetchEvaluations } from '../api/evaluations'
 import { fetchDatasets } from '../api/datasets'
 import { shortId } from '../lib/evaluationMapper'
 
+/** First sentence of a health field, so a stack trace cannot become the label. */
+const summarizeHealth = (v) => {
+  const s = String(v ?? '—').trim()
+  if (s.length <= 60) return s
+  const firstLine = s.split('\n')[0]
+  return `${firstLine.slice(0, 60).trimEnd()}…`
+}
+
 const statusBadge = (s) => {
   if (s === 'Healthy' || s === 'Pass' || s === 'Passed') return <Badge variant="green">{s}</Badge>
   if (s === 'Degraded' || s === 'Warn' || s === 'Partial') return <Badge variant="amber">{s}</Badge>
@@ -68,7 +76,11 @@ export default function Dashboard() {
 
   const syncLabel = useMemo(() => {
     if (lastSyncedAt) return `Last synced ${formatRelativeTime(lastSyncedAt.toISOString())}`
-    return health?.status === 'healthy' ? 'Connected to backend' : 'Connect backend & run discovery'
+    if (health?.status === 'healthy') return 'Connected to backend'
+    // The old wording told the user to connect a backend that had just answered
+    // this very request. Degraded means a dependency is unhealthy, not that.
+    if (health) return 'Backend reachable, some checks degraded'
+    return 'Checking backend…'
   }, [lastSyncedAt, health])
 
   const agentNameById = useMemo(() => {
@@ -247,9 +259,16 @@ export default function Dashboard() {
           label="API health"
           value={health?.status === 'healthy' ? 'OK' : health?.status === 'degraded' ? 'Degraded' : '—'}
           meta={
-            health
-              ? `DB: ${health.database} · GCP: ${health.gcp_auth}`
-              : 'Checking…'
+            health ? (
+              // gcp_auth carries the whole exception chain on failure -- a
+              // NameResolutionError traceback rendered in full inside this card
+              // and pushed the row to several times its height.
+              <span title={`DB: ${health.database}\nGCP: ${health.gcp_auth}`}>
+                DB: {health.database} · GCP: {summarizeHealth(health.gcp_auth)}
+              </span>
+            ) : (
+              'Checking…'
+            )
           }
         />
       </div>
