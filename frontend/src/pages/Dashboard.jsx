@@ -271,7 +271,15 @@ export default function Dashboard() {
                 <Th>Agent</Th><Th>Type</Th><Th>Status</Th><Th>Last active</Th>
               </THead>
               <tbody>
-                {agents.slice(0, 4).map((a) => (
+                {/* Unreachable agents were taking the top of the list from the
+                    ones the user can actually run against. */}
+                {[...agents]
+                  .sort(
+                    (a, b) =>
+                      (a.status === 'Inactive' ? 1 : 0) - (b.status === 'Inactive' ? 1 : 0),
+                  )
+                  .slice(0, 4)
+                  .map((a) => (
                   <TRow key={a.id} onClick={() => nav(`/agents/${a.id}`)}>
                     <Td>
                       <div className="flex items-center gap-2 font-medium">

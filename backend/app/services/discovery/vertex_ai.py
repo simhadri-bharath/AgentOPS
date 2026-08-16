@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -20,6 +21,16 @@ logger = get_logger(__name__)
 
 # Stable namespace for UUID5 derived from GCP resource names
 _AGENTOPS_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
+
+# `vertexai.init()` sets the location in module-global SDK state, and
+# `ReasoningEngine.list()` reads it back. Scanning regions on a thread pool meant
+# ten threads racing on that global: whichever init landed last decided the
+# endpoint for every in-flight list, so the rest failed with
+#   "The provided location ID doesn't match the endpoint"
+# and discovery reported zero engines in a project that has four. The pairing has
+# to be atomic, which costs the parallelism but is the only way the SDK's global
+# location can be trusted.
+_SDK_INIT_LOCK = threading.Lock()
 
 
 def agent_uuid_for_resource(resource_name: str) -> uuid.UUID:
@@ -142,14 +153,17 @@ class VertexAIDiscoveryService(BaseDiscoveryService):
         from vertexai.preview import reasoning_engines
 
         try:
-            vertexai.init(project=project_id, location=region)
-            deployed = reasoning_engines.ReasoningEngine.list()
-            if deployed is None:
-                engines: list[Any] = []
-            elif isinstance(deployed, list):
-                engines = deployed
-            else:
-                engines = list(deployed)
+            with _SDK_INIT_LOCK:
+                vertexai.init(project=project_id, location=region)
+                deployed = reasoning_engines.ReasoningEngine.list()
+                if deployed is None:
+                    engines: list[Any] = []
+                elif isinstance(deployed, list):
+                    engines = deployed
+                else:
+                    # Materialised inside the lock: a lazy pager would issue its
+                    # requests after another region had moved the global endpoint.
+                    engines = list(deployed)
 
             logger.info(
                 "Listed reasoning engines",
