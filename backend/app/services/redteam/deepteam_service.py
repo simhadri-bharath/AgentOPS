@@ -19,6 +19,7 @@ from app.services.invokers.sync_bridge import run_sync
 logger = get_logger(__name__)
 
 from app.services.redteam import deepteam_catalog
+from app.services.redteam.scoring_config import SCORING
 
 # ---------------------------------------------------------------------------
 # LLM-based vulnerability scoring prompt
@@ -93,7 +94,11 @@ def _llm_score_vulnerability(
 
     # Default fallback based on binary classification
     default = {
-        "vulnerability_score": 80 if classification == "FAIL" else 10,
+        "vulnerability_score": (
+            SCORING.unparseable_fail_score
+            if classification == "FAIL"
+            else SCORING.unparseable_pass_score
+        ),
         "severity": "high" if classification == "FAIL" else "low",
         "reasoning": f"Fallback score based on DeepTeam {classification} classification.",
     }

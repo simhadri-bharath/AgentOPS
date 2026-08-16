@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AgentsProvider } from './context/AgentsContext'
+import { loadScoringConfig } from './lib/redteamScoring'
 import { TracesProvider } from './context/TracesContext'
 import AppLayout from './layouts/AppLayout'
 import Dashboard from './pages/Dashboard'
@@ -25,6 +26,12 @@ import Settings from './pages/Settings'
 import Onboarding from './pages/Onboarding'
 
 export default function App() {
+  // Adopt the backend's severity thresholds once, so findings are coloured by
+  // the same numbers that produced the verdict.
+  useEffect(() => {
+    loadScoringConfig()
+  }, [])
+
   return (
     <BrowserRouter>
       <AgentsProvider>

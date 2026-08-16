@@ -215,3 +215,46 @@ def test_empty_dataset_is_failed():
     status, message = EvaluationRunner._terminal_status([])
     assert status == "failed"
     assert "no samples" in message
+
+
+def test_redteam_thresholds_have_one_definition():
+    """Cutoffs used to be duplicated across classifier and adapter, free to drift."""
+    from app.services.redteam.scoring_config import SCORING
+
+    t = SCORING.thresholds
+    assert t.classify(0.9) == "FAIL"
+    assert t.classify(0.1) == "PASS"
+    assert t.classify(0.5) == "UNCERTAIN"
+    # Boundaries are inclusive on both ends.
+    assert t.classify(t.fail_at) == "FAIL"
+    assert t.classify(t.pass_at) == "PASS"
+
+
+def test_redteam_severity_bands_are_ordered():
+    from app.services.redteam.scoring_config import SCORING
+
+    t = SCORING.thresholds
+    assert t.critical_at > t.high_at > t.medium_at > t.pass_at
+    assert t.severity(0.9) == "critical"
+    assert t.severity(0.7) == "high"
+    assert t.severity(0.5) == "medium"
+    assert t.severity(0.1) == "low"
+
+
+def test_fusion_weights_apply_category_overrides():
+    # A jailbreak leans harder on the attack verdict; PII on hallucination.
+    from app.services.redteam.scoring_config import SCORING
+
+    w = SCORING.weights
+    assert w.weight_for("attack_verdict", "jailbreak") == 0.45
+    assert w.weight_for("attack_verdict", "boundary") == w.attack_verdict
+    assert w.weight_for("hallucination", "pii_extraction") == 0.25
+    assert w.weight_for("hallucination", None) == w.hallucination
+
+
+def test_ui_bands_derive_from_backend_thresholds():
+    # The frontend hardcoded 11/31/56/81 in six places; these are generated.
+    from app.services.redteam.scoring_config import SCORING, SEVERITY_BANDS_0_100
+
+    assert SEVERITY_BANDS_0_100["critical"] == int(SCORING.thresholds.critical_at * 100)
+    assert SEVERITY_BANDS_0_100["high"] == int(SCORING.thresholds.high_at * 100)

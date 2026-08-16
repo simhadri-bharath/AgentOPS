@@ -1,3 +1,4 @@
+import { severityColor } from '../../lib/redteamScoring'
 import React from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -112,12 +113,7 @@ export default function RedTeamRunResults() {
               : '—'
           }
           valueStyle={{
-            color:
-              (run?.report?.avg_llm_vulnerability_score ?? 0) >= 56
-                ? '#EF4444'
-                : (run?.report?.avg_llm_vulnerability_score ?? 0) >= 31
-                  ? '#F59E0B'
-                  : '#22C55E',
+            color: severityColor(run?.report?.avg_llm_vulnerability_score ?? 0),
           }}
         />
       </div>
@@ -175,12 +171,7 @@ export default function RedTeamRunResults() {
                         <span
                           className="text-[12px] font-mono font-semibold"
                           style={{
-                            color:
-                              riskScore >= 81 ? '#dc2626'
-                                : riskScore >= 56 ? '#ef4444'
-                                  : riskScore >= 31 ? '#f59e0b'
-                                    : riskScore >= 11 ? '#3b82f6'
-                                      : '#22c55e',
+                            color: severityColor(riskScore),
                           }}
                         >
                           {riskScore}/100

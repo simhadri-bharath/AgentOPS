@@ -433,6 +433,18 @@ observability column decorative.
 must not read as a clean result. There was previously no way to stop one short
 of restarting the process.
 
+Every number that decides a verdict lives in `redteam/scoring_config.py`:
+classification cutoffs, severity bands, the per-signal fusion weights and their
+per-category overrides, and the unparseable-response fallback. They were
+literals spread across `classifier.py`, `deepeval_adapter.py` and
+`deepteam_service.py`, with the same values duplicated in more than one file.
+
+The UI reads them from `GET /redteam/meta/scoring` rather than keeping a copy.
+This **changes displayed severity**: the frontend used 11/31/56/81 while the
+backend classified FAIL at 0.65, so a finding scored 56 was shown as "high"
+when the backend did not consider it a failure at all. Bands are now
+35/45/65/85, matching the thresholds that produce the verdict.
+
 One judge now serves evaluation and both scan modes. The red-team path used a
 hand-rolled judge that raised `TypeError` on schema-based generation, which is
 how newer DeepEval metrics request structured output, so those metrics were

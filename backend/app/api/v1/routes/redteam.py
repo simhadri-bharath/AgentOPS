@@ -10,6 +10,7 @@ from app.repositories.agent_repository import AgentRepository
 from app.repositories.redteam_repository import RedTeamRepository
 from app.services.evaluation import registry
 from app.services.redteam import deepteam_catalog
+from app.services.redteam.scoring_config import SCORING, SEVERITY_BANDS_0_100
 from app.services.redteam.deepteam_catalog import DeepTeamUnavailable
 from app.schemas.redteam import (
     DEFAULT_JUDGE_MODELS,
@@ -399,6 +400,26 @@ async def list_deepteam_attacks() -> dict:
         "single_turn": [a for a in items if a["kind"] == "single_turn"],
         "multi_turn": [a for a in items if a["kind"] == "multi_turn"],
         "total": len(items),
+    }
+
+
+@router.get("/meta/scoring")
+async def get_scoring_config() -> dict:
+    """Thresholds the backend actually scores with.
+
+    Served so the UI colours findings by the same numbers rather than its own
+    copy -- 11/31/56/81 were hardcoded in six frontend places, free to drift
+    from the backend's 0.35/0.45/0.65/0.85.
+    """
+    t = SCORING.thresholds
+    return {
+        "classification": {"fail_at": t.fail_at, "pass_at": t.pass_at},
+        "severity": {
+            "critical_at": t.critical_at,
+            "high_at": t.high_at,
+            "medium_at": t.medium_at,
+        },
+        "severity_bands_0_100": SEVERITY_BANDS_0_100,
     }
 
 
