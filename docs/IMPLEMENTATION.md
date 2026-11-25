@@ -1,6 +1,6 @@
 # AgentOps — Implementation Status, Architecture, and Roadmap
 
-Branch: `feature/agent-engine-eval` · Last verified against `steptoe-surplus-lines-499008` on 2026-08-09
+Branch: `feature/agent-engine-eval` · Last verified against `your-gcp-project-id` on 2026-08-09
 
 This document covers what is built, how it fits together, what is deliberately not
 built, and what can be extended next. For how to operate the platform, see
@@ -19,9 +19,9 @@ The three deployed agents it was built and verified against:
 
 | Display name | Engine ID | Framework | Shape |
 |---|---|---|---|
-| Steptoe Chat Agent V1 | `8804280535544233984` | `google-adk` | multi-agent (`research_agent` → `formatter_agent`), retrieval-backed |
-| Survey Analysis Agent V2 | `8531812758088318976` | `google-adk` | Discovery Engine + Flash |
-| Survey  Agent v1 dev | `4370486702397980672` | `google-adk` | dev/test engine |
+| Legal Chat Agent V1 | `CHAT_ENGINE_ID` | `google-adk` | multi-agent (`research_agent` → `formatter_agent`), retrieval-backed |
+| Survey Analysis Agent V2 | `SURVEY_ENGINE_ID` | `google-adk` | Discovery Engine + Flash |
+| Survey  Agent v1 dev | `SURVEY_DEV_ENGINE_ID` | `google-adk` | dev/test engine |
 
 ---
 
