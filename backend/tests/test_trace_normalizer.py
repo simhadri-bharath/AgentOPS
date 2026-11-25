@@ -1,6 +1,6 @@
 """Trace normalization against the real Agent Engine event shape.
 
-The fixture mirrors a live session on Steptoe Chat Agent V1: two turns, a
+The fixture mirrors a live session on Legal Chat Agent V1: two turns, a
 research_agent -> formatter_agent handoff, and a second turn where
 search_documents is called twice with identical arguments.
 """
