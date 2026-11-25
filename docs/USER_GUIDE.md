@@ -101,9 +101,9 @@ charts, and marks off each step as you complete it.
 Open **Deployments**. It reads Vertex AI live and writes nothing.
 
 ```
-DEPLOYMENTS · Agent Engine        steptoe-surplus-lines-499008 · us-central1
+DEPLOYMENTS · Agent Engine        your-gcp-project-id · us-central1
 
-  Steptoe Chat Agent V1           google-adk   50+ sessions   active 2d ago
+  Legal Chat Agent V1           google-adk   50+ sessions   active 2d ago
       multi_agent · retrieval, tool_use, multi_agent
       tools: search_documents                                    [Onboard]
 
