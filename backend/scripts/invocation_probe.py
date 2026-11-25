@@ -15,7 +15,7 @@ Standalone by design -- imports nothing from app/ so it can run before any of
 the invoker refactor exists.
 
 Usage:
-    python backend/scripts/invocation_probe.py --engine 4370486702397980672
+    python backend/scripts/invocation_probe.py --engine YOUR_ENGINE_ID
 """
 
 from __future__ import annotations
